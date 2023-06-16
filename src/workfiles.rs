@@ -1,5 +1,6 @@
-use std::{ffi::OsStr, path::PathBuf};
+use std::{ffi::OsStr, io, path::PathBuf};
 
+/// Represents a workfile found on drive.
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, PartialOrd, Ord, Eq)]
 pub struct File {
     pub name: String,
@@ -9,10 +10,12 @@ pub struct File {
 }
 
 impl File {
+    /// Returns the version number in a presentable format: v###.
     pub fn fmt_version(&self) -> String {
         format!("v{:03}", self.version)
     }
 
+    /// Create a new representation of a workfile, from an existing file path.
     pub fn from_path(path: PathBuf) -> Result<Self, String> {
         let extension = String::from(
             path.extension()
@@ -44,5 +47,14 @@ impl File {
             version: version,
             extension: extension,
         })
+    }
+
+    /// Open the file using system default application.
+    pub fn open(&self) -> Result<(), io::Error> {
+        match open::that(&self.path) {
+            Ok(()) => (),
+            Err(e) => return Err(e),
+        }
+        Ok(())
     }
 }

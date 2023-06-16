@@ -28,6 +28,7 @@ pub struct Rclamp {
     files: Vec<File>,
     config: RclampConfig,
 
+    warning_message: String,
     show_create_project: bool,
     show_create_task: bool,
     show_create_folder: bool,
@@ -86,6 +87,7 @@ impl Default for Rclamp {
                 template_project: template_project,
             },
 
+            warning_message: String::new(),
             show_create_project: false,
             show_create_task: false,
             show_create_folder: false,
@@ -135,6 +137,12 @@ impl Rclamp {
         self.files.reverse();
     }
 
+    fn refresh_all(&mut self, ui: &mut egui::Ui) {
+        self.refresh_projects();
+        self.refresh_tasks(ui);
+        self.refresh_files();
+    }
+
     /// Refreshes the list of projects by calling find_projects.
     fn refresh_projects(&mut self) {
         self.projects = match Project::find_projects(
@@ -146,7 +154,22 @@ impl Rclamp {
         };
     }
 
-    fn refresh_tasks(&mut self) {}
+    /// Refreshes task tree.
+    fn refresh_tasks(&mut self, ui: &mut egui::Ui) {
+        let tree = match TaskTreeNode::from_path(self.current_project.clone().work_dir) {
+            Ok(t) => t,
+            Err(e) => {
+                self.render_task_tree_error(ui, e);
+                return;
+            }
+        };
+        self.current_project_task_tree = tree;
+    }
+
+    /// Refreshes file list.
+    fn refresh_files(&mut self) {
+        self.set_current_task(self.current_task.clone());
+    }
 
     /// Renders the list of projects.
     fn render_projects(&mut self, ui: &mut egui::Ui) {
@@ -225,7 +248,7 @@ impl Rclamp {
                         self.new_task_message = String::new();
                     }
                 }
-                self.refresh_tasks();
+                self.refresh_tasks(ui);
             }
         });
         ui.add_space(SPACING);
@@ -263,7 +286,7 @@ impl Rclamp {
                         self.new_folder_message = String::new();
                     }
                 }
-                self.refresh_tasks();
+                self.refresh_tasks(ui);
             }
         });
         ui.add_space(SPACING);
@@ -333,7 +356,7 @@ impl Rclamp {
                 ui.with_layout(
                     egui::Layout::centered_and_justified(egui::Direction::RightToLeft),
                     |ui| {
-                        ui.label(format!("{}", self.current_project.name));
+                        ui.label(format!("{}", self.warning_message));
                     },
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
@@ -348,7 +371,7 @@ impl Rclamp {
                         self.config.dark_mode = !self.config.dark_mode;
                     }
                     if refresh_btn.clicked() {
-                        self.refresh_projects();
+                        self.refresh_all(ui);
                     }
                 });
             });
@@ -471,7 +494,17 @@ impl Rclamp {
                 for f in &self.files {
                     body.row(20., |mut row| {
                         row.col(|ui| {
-                            ui.label(&f.name);
+                            if ui
+                                .add(egui::Label::new(&f.name).sense(egui::Sense::click()))
+                                .double_clicked()
+                            {
+                                match f.open() {
+                                    Ok(()) => (),
+                                    Err(e) => {
+                                        self.warning_message = format!("Error opening file: {}", e)
+                                    }
+                                }
+                            }
                         });
                         row.col(|ui| {
                             ui.label(&f.fmt_version());

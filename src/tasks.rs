@@ -9,11 +9,13 @@ use std::fs::{self, DirEntry};
 use std::io;
 use std::path::PathBuf;
 
+/// Can include additional metadata for task directories. Currently only informs whether a dir is a task or not.
 #[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
 pub struct TaskNodeMetadata {
     pub is_task: bool,
 }
 
+/// Represents a directory.
 #[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
 pub struct TaskTreeNode {
     pub name: String,
@@ -23,6 +25,7 @@ pub struct TaskTreeNode {
 }
 
 impl TaskTreeNode {
+    /// Returns a new representation of a task directory, from a given path.
     pub fn from_path(path: PathBuf) -> Result<TaskTreeNode, io::Error> {
         let name = String::from(
             path.file_name()
@@ -70,6 +73,7 @@ impl TaskTreeNode {
         Ok(node)
     }
 
+    /// Returns a new representation of a task directory.
     pub fn new(name: String, path: PathBuf) -> Self {
         Self {
             name: name,
@@ -79,6 +83,7 @@ impl TaskTreeNode {
         }
     }
 
+    /// Opens the tasks output directory in Explorer or Finder.
     pub fn open_output(&self) {
         let mut output_path: PathBuf = self.path.clone();
         output_path.push(PathBuf::from("02_output"));
