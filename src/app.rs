@@ -1,4 +1,6 @@
 use egui::Color32;
+use log::{error, info};
+use std::env;
 use std::io;
 use std::path::PathBuf;
 
@@ -12,10 +14,23 @@ const TEST_PROJECT_PATH_MAC: &str =
     "/Users/johnbuddee/Dropbox (Personal)/Annat/Kod/rclamp/test_folder";
 
 #[derive(serde::Deserialize, serde::Serialize)]
-struct RclampConfig {
+struct RclampAppConfig {
     dark_mode: bool,
     projects_dir: PathBuf,
+    templates_dir: PathBuf,
     template_project: Project,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct RclampConfig {
+    projects_dir: String,
+    templates_dir: String,
+    pipeline_dir_name: String,
+    work_dir_name: String,
+    dailies_dir_name: String,
+    deliveries_dir_name: String,
+    extra_dir_names: Vec<String>,
+    work_sub_dirs: Vec<String>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -26,7 +41,7 @@ pub struct Rclamp {
     current_task: TaskTreeNode,
     projects: Vec<Project>,
     files: Vec<File>,
-    config: RclampConfig,
+    config: RclampAppConfig,
 
     warning_message: String,
     show_create_project: bool,
@@ -53,7 +68,8 @@ impl Default for Rclamp {
             TEST_PROJECT_PATH_MAC
         };
         let projects_dir = PathBuf::from(test_project_path);
-
+        let mut templates_dir = projects_dir.clone();
+        templates_dir.push(PathBuf::from("templates"));
         let template_project = Project::new(
             String::new(),
             projects_dir.clone(),
@@ -68,26 +84,30 @@ impl Default for Rclamp {
                 String::from("03_assets"),
             ]),
         );
-        let projects = match Project::find_projects(projects_dir, template_project.clone()) {
-            Ok(p) => p,
-            Err(error) => panic!("Error when looking for projects: {}", error),
+
+        let mut warning_message = String::new();
+        let mut projects: Vec<Project> = Vec::new();
+        match Project::find_projects(projects_dir, template_project.clone()) {
+            Ok(p) => projects = p,
+            Err(e) => warning_message = String::from(format!("Error finding projects: {}", e)),
         };
 
         let empty_task = TaskTreeNode::new(String::new(), PathBuf::new());
 
         Self {
             current_project: template_project.clone(),
-            projects: projects,
+            projects,
             current_project_task_tree: empty_task.clone(),
             current_task: empty_task.clone(),
             files: Vec::new(),
-            config: RclampConfig {
+            config: RclampAppConfig {
                 dark_mode: true,
                 projects_dir: PathBuf::from(test_project_path),
-                template_project: template_project,
+                templates_dir,
+                template_project,
             },
 
-            warning_message: String::new(),
+            warning_message,
             show_create_project: false,
             show_create_task: false,
             show_create_folder: false,
@@ -108,18 +128,65 @@ impl Default for Rclamp {
 
 impl Rclamp {
     /// Called once before the first frame.
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
 
         // Load previous app state (if any).
         // Note that you must enable the `persistence` feature for this to work.
 
+        /*
         if let Some(storage) = cc.storage {
             return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         }
+        */
 
-        Default::default()
+        info!("Checking env var for config.");
+        let config_path: String = match env::var("RCLAMP_CONFIG") {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Could not load env var: {}", e);
+                return Default::default();
+            }
+        };
+
+        info!("Found config path: {}", config_path);
+
+        let f = match std::fs::File::open(config_path) {
+            Ok(f) => f,
+            Err(e) => {
+                error!("Could not open config file: {}", e);
+                return Default::default();
+            }
+        };
+
+        let config: RclampConfig = match serde_yaml::from_reader(f) {
+            Ok(c) => c,
+            Err(e) => {
+                error!("Could not load config: {}", e);
+                return Default::default();
+            }
+        };
+        info!("Read config successfully.");
+
+        let mut rclamp = Rclamp::default();
+
+        let template_project = Project::new(
+            String::new(),
+            PathBuf::from(&config.projects_dir),
+            config.pipeline_dir_name,
+            config.work_dir_name,
+            config.dailies_dir_name,
+            config.deliveries_dir_name,
+            config.extra_dir_names,
+            config.work_sub_dirs,
+        );
+
+        rclamp.config.template_project = template_project;
+        rclamp.config.projects_dir = PathBuf::from(config.projects_dir);
+        rclamp.config.templates_dir = PathBuf::from(config.templates_dir);
+
+        rclamp
     }
 
     /// Simply sets the current project.
@@ -145,13 +212,13 @@ impl Rclamp {
 
     /// Refreshes the list of projects by calling find_projects.
     fn refresh_projects(&mut self) {
-        self.projects = match Project::find_projects(
+        match Project::find_projects(
             self.config.projects_dir.clone(),
             self.config.template_project.clone(),
         ) {
-            Ok(p) => p,
-            Err(e) => panic!("Error when looking for projects: {}", e),
-        };
+            Ok(p) => self.projects = p,
+            Err(e) => self.warning_message = String::from(format!("Error finding projects: {}", e)),
+        }
     }
 
     /// Refreshes task tree.
@@ -360,9 +427,10 @@ impl Rclamp {
                     },
                 );
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
+                    let theme_icon = if self.config.dark_mode { "☀" } else { "🌙" };
                     let close_btn = ui.add(egui::Button::new("❌"));
                     let refresh_btn = ui.add(egui::Button::new("🔄"));
-                    let theme_btn = ui.add(egui::Button::new("🌙"));
+                    let theme_btn = ui.add(egui::Button::new(theme_icon));
 
                     if close_btn.clicked() {
                         frame.close();
@@ -538,6 +606,12 @@ impl eframe::App for Rclamp {
     /// Called each time the UI needs repainting, which may be many times per second.
     ///
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        if self.config.dark_mode {
+            ctx.set_visuals(egui::Visuals::dark());
+        } else {
+            ctx.set_visuals(egui::Visuals::light());
+        }
+
         egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
             // The top panel is often a good place for a menu bar:
             ui.add_space(SPACING);

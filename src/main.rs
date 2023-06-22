@@ -3,12 +3,14 @@
 
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
+use pretty_env_logger;
 
 fn main() -> eframe::Result<()> {
     // Log to stdout (if you run with `RUST_LOG=debug`).
-    tracing_subscriber::fmt::init();
+    pretty_env_logger::init();
 
     let native_options = eframe::NativeOptions::default();
+
     eframe::run_native(
         "Rclamp",
         native_options,

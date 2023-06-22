@@ -35,7 +35,7 @@ impl Project {
 
         let dir_listing = match fs::read_dir(projects_dir) {
             Ok(listing) => listing,
-            Err(error) => panic!("Failed to list project directory.{}", error),
+            Err(error) => return Err(error),
         };
 
         for result in dir_listing {
