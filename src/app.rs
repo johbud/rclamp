@@ -42,6 +42,7 @@ pub struct Rclamp {
     current_project_task_tree: Option<TaskTreeNode>,
     current_task: Option<TaskTreeNode>,
     projects: Vec<Project>,
+    projects_filtered: Vec<Project>,
     files: Option<Vec<File>>,
     dcc: Vec<Dcc>,
     config: RclampAppConfig,
@@ -98,6 +99,9 @@ impl Default for Rclamp {
             Ok(p) => projects = p,
             Err(e) => warning_message = String::from(format!("Error finding projects: {}", e)),
         };
+
+        let projects_filtered = projects.clone();
+
         let mut dcc = Vec::new();
         match Dcc::find_dcc(&templates_dir) {
             Ok(d) => dcc = d,
@@ -108,6 +112,7 @@ impl Default for Rclamp {
         Self {
             current_project: None,
             projects,
+            projects_filtered,
             current_project_task_tree: None,
             current_task: None,
             files: None,
@@ -287,7 +292,7 @@ impl Rclamp {
 
     /// Renders the list of projects.
     fn render_projects(&mut self, ui: &mut egui::Ui) {
-        let projects = &self.projects.clone();
+        let projects = &self.projects_filtered.clone();
 
         for p in projects {
             let title = format!("📁 {}", p.name);
@@ -715,6 +720,21 @@ impl Rclamp {
             });
     }
 
+    fn filter_projects(&mut self, filter_string: String) {
+        if filter_string.is_empty() {
+            self.projects_filtered = self.projects.clone();
+            return;
+        }
+
+        let filtered: Vec<Project> = self
+            .projects
+            .iter()
+            .filter(|p| p.name.contains(filter_string.as_str()))
+            .cloned()
+            .collect();
+        self.projects_filtered = filtered;
+    }
+
     fn open_create_folder(&mut self) {
         self.show_create_folder = true;
         self.show_create_project = false;
@@ -760,7 +780,10 @@ impl eframe::App for Rclamp {
             ui.add_space(SPACING);
             ui.with_layout(egui::Layout::left_to_right(egui::Align::LEFT), |ui| {
                 ui.label(format!("Filter"));
-                ui.text_edit_singleline(&mut self.project_filter);
+                let filter_edit = ui.text_edit_singleline(&mut self.project_filter);
+                if filter_edit.changed() {
+                    self.filter_projects(self.project_filter.clone());
+                }
             });
             ui.add(egui::Separator::default());
             ui.add_space(SPACING);
