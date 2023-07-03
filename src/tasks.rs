@@ -1,3 +1,5 @@
+use log::info;
+
 use crate::helpers::EXPLORER;
 use crate::helpers::FINDER;
 use crate::File;
@@ -13,6 +15,7 @@ use std::path::PathBuf;
 #[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
 pub struct TaskNodeMetadata {
     pub is_task: bool,
+    pub work_dir_name: String,
 }
 
 /// Represents a directory.
@@ -34,16 +37,17 @@ impl TaskTreeNode {
                 .unwrap_or(""),
         );
 
-        let mut node = TaskTreeNode::new(name, path.clone());
-
+        let mut node = TaskTreeNode::new(name.clone(), path.clone());
+        
         let mut check_for_work = path.clone();
         let mut check_for_output = path.clone();
-
+        
         check_for_work.push("01_work");
         check_for_output.push("02_output");
-
+        
         if check_for_work.is_dir() && check_for_output.is_dir() {
             node.metadata.is_task = true;
+            info!("Found task: {} at {}", &name, &path.display());
             return Ok(node);
         }
 
@@ -52,6 +56,7 @@ impl TaskTreeNode {
             Err(e) => return Err(e),
         };
 
+        info!("Found folder: {} at {}", &name, &path.display());
         for result in dir_listing {
             let item: DirEntry = match result {
                 Ok(r) => r,
@@ -78,7 +83,8 @@ impl TaskTreeNode {
         Self {
             name: name,
             path: path,
-            metadata: TaskNodeMetadata { is_task: false },
+            metadata: TaskNodeMetadata { is_task: false,
+            work_dir_name: String::from("01_work") },
             children: Vec::new(),
         }
     }
@@ -95,6 +101,12 @@ impl TaskTreeNode {
             Ok(()) => (),
             Err(_e) => (),
         }
+    }
+
+    pub fn get_work_path(&self) -> PathBuf {
+        let mut path = self.path.clone();
+        path.push(PathBuf::from(&self.metadata.work_dir_name));
+        path
     }
 
     /// Create a task folder and subfolders on drive. Remember to refresh task tree in ui.

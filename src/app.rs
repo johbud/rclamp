@@ -4,6 +4,8 @@ use std::env;
 use std::io;
 use std::path::PathBuf;
 
+use crate::helpers::sanitize_string;
+use crate::workfiles::Dcc;
 use crate::File;
 use crate::Project;
 use crate::TaskTreeNode;
@@ -36,11 +38,12 @@ struct RclampConfig {
 #[derive(serde::Deserialize, serde::Serialize)]
 #[serde(default)]
 pub struct Rclamp {
-    current_project: Project,
-    current_project_task_tree: TaskTreeNode,
-    current_task: TaskTreeNode,
+    current_project: Option<Project>,
+    current_project_task_tree: Option<TaskTreeNode>,
+    current_task: Option<TaskTreeNode>,
     projects: Vec<Project>,
-    files: Vec<File>,
+    files: Option<Vec<File>>,
+    dcc: Vec<Dcc>,
     config: RclampAppConfig,
 
     warning_message: String,
@@ -58,6 +61,10 @@ pub struct Rclamp {
     new_folder_message: String,
     new_task_error: String,
     new_folder_error: String,
+    new_file_name: String,
+    new_file_error: String,
+    new_file_type: Dcc,
+    project_filter: String,
 }
 
 impl Default for Rclamp {
@@ -91,15 +98,20 @@ impl Default for Rclamp {
             Ok(p) => projects = p,
             Err(e) => warning_message = String::from(format!("Error finding projects: {}", e)),
         };
-
+        let mut dcc = Vec::new();
+        match Dcc::find_dcc(&templates_dir) {
+            Ok(d) => dcc = d,
+            Err(e) => warning_message = String::from(format!("Error finding dcc's: {}", e)),
+        };
         let empty_task = TaskTreeNode::new(String::new(), PathBuf::new());
 
         Self {
-            current_project: template_project.clone(),
+            current_project: None,
             projects,
-            current_project_task_tree: empty_task.clone(),
-            current_task: empty_task.clone(),
-            files: Vec::new(),
+            current_project_task_tree: None,
+            current_task: None,
+            files: None,
+            dcc,
             config: RclampAppConfig {
                 dark_mode: true,
                 projects_dir: PathBuf::from(test_project_path),
@@ -122,6 +134,14 @@ impl Default for Rclamp {
             new_folder_message: String::new(),
             new_task_error: String::new(),
             new_folder_error: String::new(),
+            new_file_name: String::new(),
+            new_file_error: String::new(),
+            new_file_type: Dcc {
+                name: String::new(),
+                extension: String::new(),
+                template_path: PathBuf::from("does_not_exist"),
+            },
+            project_filter: String::new(),
         }
     }
 }
@@ -191,17 +211,36 @@ impl Rclamp {
 
     /// Simply sets the current project.
     fn set_current_project(&mut self, project: Project) {
-        self.current_project = project;
+        self.current_project = Some(project);
     }
 
     pub fn set_current_task(&mut self, task: TaskTreeNode) {
-        self.current_task = task;
-        self.files = self
-            .current_task
-            .find_workfiles(String::from("01_work"))
-            .unwrap_or(Vec::new());
-        self.files.sort();
-        self.files.reverse();
+        let work_subdir = match &self.current_project {
+            Some(p) => p
+                .work_sub_dirs
+                .first()
+                .clone()
+                .unwrap_or(&String::new())
+                .to_owned(),
+            None => return,
+        };
+
+        self.current_task = Some(task);
+
+        let mut files = match &self.current_task {
+            Some(t) => match t.find_workfiles(work_subdir) {
+                Ok(v) => v,
+                Err(e) => {
+                    self.warning_message = String::from(format!("Error opening task: {}", e));
+                    return;
+                }
+            },
+            None => return,
+        };
+
+        files.sort();
+        files.reverse();
+        self.files = Some(files);
     }
 
     fn refresh_all(&mut self, ui: &mut egui::Ui) {
@@ -223,19 +262,27 @@ impl Rclamp {
 
     /// Refreshes task tree.
     fn refresh_tasks(&mut self, ui: &mut egui::Ui) {
-        let tree = match TaskTreeNode::from_path(self.current_project.clone().work_dir) {
+        let project = match &self.current_project {
+            Some(p) => p.clone(),
+            None => return,
+        };
+        let tree = match TaskTreeNode::from_path(project.work_dir) {
             Ok(t) => t,
             Err(e) => {
                 self.render_task_tree_error(ui, e);
                 return;
             }
         };
-        self.current_project_task_tree = tree;
+        self.current_project_task_tree = Some(tree);
     }
 
     /// Refreshes file list.
     fn refresh_files(&mut self) {
-        self.set_current_task(self.current_task.clone());
+        let task = match &self.current_task {
+            Some(t) => t.clone(),
+            None => return,
+        };
+        self.set_current_task(task);
     }
 
     /// Renders the list of projects.
@@ -273,15 +320,16 @@ impl Rclamp {
 
     /// First sets the current project, then creates a task tree and assigns it as the current task tree.
     fn open_project(&mut self, project: Project, ui: &mut egui::Ui) {
-        self.set_current_project(project);
-        let tree = match TaskTreeNode::from_path(self.current_project.clone().work_dir) {
+        self.set_current_project(project.clone());
+
+        let tree = match TaskTreeNode::from_path(project.work_dir) {
             Ok(t) => t,
             Err(e) => {
                 self.render_task_tree_error(ui, e);
                 return;
             }
         };
-        self.current_project_task_tree = tree;
+        self.current_project_task_tree = Some(tree);
     }
 
     /// Shows a dialog for creating a task.
@@ -294,18 +342,29 @@ impl Rclamp {
             let cancel_btn = ui.add(egui::Button::new("❌ Cancel"));
 
             ui.add_space(SPACING);
-            ui.label(&self.new_task_message);
-            ui.label(egui::RichText::new(&self.new_task_error).color(Color32::RED));
 
             if cancel_btn.clicked() {
                 self.show_create_task = false;
+                self.new_task_error = String::new();
+                self.new_task_message = String::new();
             }
 
             if create_task_btn.clicked() {
-                match self
-                    .new_task_parent
-                    .create_task(self.new_task_name.clone(), self.current_project.clone())
-                {
+                let project = match &self.current_project {
+                    Some(p) => p.clone(),
+                    None => {
+                        self.new_task_error = String::from("No project open.");
+                        return;
+                    }
+                };
+
+                let task_name = sanitize_string(self.new_task_name.clone());
+
+                if task_name.is_empty() {
+                    return;
+                }
+
+                match self.new_task_parent.create_task(task_name, project) {
                     Ok(()) => {
                         self.new_task_message = String::from("Successfully created task.");
                         self.new_task_error = String::new();
@@ -331,18 +390,29 @@ impl Rclamp {
             let cancel_btn = ui.add(egui::Button::new("❌ Cancel"));
 
             ui.add_space(SPACING);
-            ui.label(&self.new_folder_message);
-            ui.label(egui::RichText::new(&self.new_folder_error).color(Color32::RED));
 
             if cancel_btn.clicked() {
                 self.show_create_folder = false;
+                self.new_folder_error = String::new();
+                self.new_folder_message = String::new();
             }
 
             if create_folder_btn.clicked() {
-                match self
-                    .new_folder_parent
-                    .create_task(self.new_folder_name.clone(), self.current_project.clone())
-                {
+                let project = match &self.current_project {
+                    Some(p) => p.clone(),
+                    None => {
+                        self.new_task_error = String::from("No project open.");
+                        return;
+                    }
+                };
+
+                let folder_name = sanitize_string(self.new_folder_name.clone());
+
+                if folder_name.is_empty() {
+                    return;
+                }
+
+                match self.new_folder_parent.create_task(folder_name, project) {
                     Ok(()) => {
                         self.new_folder_message = String::from("Successfully created folder.");
                         self.new_folder_error = String::new();
@@ -367,8 +437,6 @@ impl Rclamp {
             let create_project_btn = ui.add(egui::Button::new("Create"));
 
             ui.add_space(SPACING);
-            ui.label(&self.new_project_message);
-            ui.label(egui::RichText::new(&self.new_project_error).color(Color32::RED));
 
             if create_project_btn.clicked() {
                 if self.new_project_name.len() > 0 {
@@ -402,6 +470,46 @@ impl Rclamp {
         ui.add_space(SPACING);
     }
 
+    fn create_file_dialog(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.label("New workfile name: ");
+            ui.text_edit_singleline(&mut self.new_file_name);
+            ui.label("File type: ");
+            egui::ComboBox::from_id_source("filetype_select")
+                .selected_text(format!("{}", self.new_file_type.name))
+                .show_ui(ui, |ui| {
+                    for d in &self.dcc {
+                        ui.selectable_value(&mut self.new_file_type, d.clone(), d.name.clone());
+                    }
+                });
+            let create_file_btn = ui.add(egui::Button::new("Create"));
+            if create_file_btn.clicked() {
+                if self.current_project.is_none() {
+                    return;
+                }
+                if self.current_task.is_none() {
+                    return;
+                }
+
+                let file_name = sanitize_string(self.new_file_name.clone());
+                if file_name.is_empty() {
+                    return;
+                }
+
+                match File::create_file(
+                    file_name,
+                    self.current_task.clone().unwrap(),
+                    self.current_project.clone().unwrap(),
+                    self.new_file_type.clone(),
+                ) {
+                    Ok(()) => (),
+                    Err(e) => self.warning_message = e.to_string(),
+                }
+                self.refresh_files();
+            }
+        });
+    }
+
     /// Top bar containing a few buttons.
     fn render_top_bar(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         egui::menu::bar(ui, |ui| {
@@ -423,9 +531,22 @@ impl Rclamp {
                 ui.with_layout(
                     egui::Layout::centered_and_justified(egui::Direction::RightToLeft),
                     |ui| {
-                        ui.label(format!("{}", self.warning_message));
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::LEFT), |ui| {
+                            ui.label(format!("{}", self.warning_message));
+                            ui.label(&self.new_folder_message);
+                            ui.label(
+                                egui::RichText::new(&self.new_folder_error).color(Color32::RED),
+                            );
+                            ui.label(&self.new_project_message);
+                            ui.label(
+                                egui::RichText::new(&self.new_project_error).color(Color32::RED),
+                            );
+                            ui.label(&self.new_task_message);
+                            ui.label(egui::RichText::new(&self.new_task_error).color(Color32::RED));
+                        });
                     },
                 );
+
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
                     let theme_icon = if self.config.dark_mode { "☀" } else { "🌙" };
                     let close_btn = ui.add(egui::Button::new("❌"));
@@ -448,7 +569,11 @@ impl Rclamp {
 
     /// Show task tree
     fn render_task_tree(&mut self, ui: &mut egui::Ui) {
-        let task = self.current_project_task_tree.clone();
+        let task = match &self.current_project_task_tree {
+            Some(t) => t.clone(),
+            None => return,
+        };
+
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
                 let new_folder_btn = ui.add(egui::Button::new("+ Folder"));
@@ -539,6 +664,11 @@ impl Rclamp {
     fn files_table(&mut self, ui: &mut egui::Ui) {
         use egui_extras::{Column, TableBuilder};
 
+        let files = match &self.files {
+            Some(v) => v.clone(),
+            None => return,
+        };
+
         TableBuilder::new(ui)
             .striped(true)
             .resizable(true)
@@ -559,7 +689,7 @@ impl Rclamp {
                 });
             })
             .body(|mut body| {
-                for f in &self.files {
+                for f in &files {
                     body.row(20., |mut row| {
                         row.col(|ui| {
                             if ui
@@ -625,21 +755,15 @@ impl eframe::App for Rclamp {
             });
         }
 
-        if self.show_create_task {
-            egui::TopBottomPanel::top("create_task_panel").show(ctx, |ui| {
-                self.create_task_dialog(ui);
-            });
-        }
-
-        if self.show_create_folder {
-            egui::TopBottomPanel::top("create_folder_panel").show(ctx, |ui| {
-                self.create_folder_dialog(ui);
-            });
-        }
-
         egui::SidePanel::left("first_left_panel").show(ctx, |ui| {
             // Left panel
-
+            ui.add_space(SPACING);
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::LEFT), |ui| {
+                ui.label(format!("Filter"));
+                ui.text_edit_singleline(&mut self.project_filter);
+            });
+            ui.add(egui::Separator::default());
+            ui.add_space(SPACING);
             egui::ScrollArea::vertical().show(ui, |ui| {
                 self.render_projects(ui);
             });
@@ -647,12 +771,37 @@ impl eframe::App for Rclamp {
 
         egui::SidePanel::left("second_left_panel").show(ctx, |ui| {
             // Middle panel
+            ui.add_space(SPACING);
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::LEFT), |ui| {
+                let project_name = match &self.current_project {
+                    Some(p) => p.name.clone(),
+                    None => String::new(),
+                };
 
-            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.label(format!("Current project: {}", project_name));
+            });
+            ui.add(egui::Separator::default());
+            ui.add_space(SPACING);
+
+            if self.show_create_task {
                 ui.add_space(SPACING);
-                ui.label(format!("Current project: {}", self.current_project.name));
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::LEFT), |ui| {
+                    self.create_task_dialog(ui);
+                });
                 ui.add(egui::Separator::default());
                 ui.add_space(SPACING);
+            }
+
+            if self.show_create_folder {
+                ui.add_space(SPACING);
+                ui.with_layout(egui::Layout::left_to_right(egui::Align::LEFT), |ui| {
+                    self.create_folder_dialog(ui);
+                });
+                ui.add(egui::Separator::default());
+                ui.add_space(SPACING);
+            }
+
+            egui::ScrollArea::vertical().show(ui, |ui| {
                 self.render_task_tree(ui);
             });
         });
@@ -660,10 +809,18 @@ impl eframe::App for Rclamp {
         egui::CentralPanel::default().show(ctx, |ui| {
             // Right panel
 
+            let task_name = match &self.current_task {
+                Some(t) => t.name.clone(),
+                None => String::new(),
+            };
+
+            ui.label(format!("Current task: {}", task_name));
+            ui.add(egui::Separator::default());
+            self.create_file_dialog(ui);
+            ui.add(egui::Separator::default());
+            ui.add_space(SPACING);
+
             egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.label(format!("Current task: {}", self.current_task.name));
-                ui.add(egui::Separator::default());
-                ui.add_space(SPACING);
                 self.files_table(ui);
             });
         });
