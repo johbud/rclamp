@@ -1,11 +1,15 @@
-projects_dir: D:\Dropbox (Personal)\Annat\Kod\rclamp\test_folder
-templates_dir: D:\Dropbox (Personal)\Annat\Kod\rclamp\test_folder\templates
+projects_dir_win: D:\Dropbox (Personal)\Annat\Kod\rclamp\test_folder
+templates_dir_win: D:\Dropbox (Personal)\Annat\Kod\rclamp\test_folder\templates
+projects_dir_mac: D:\Dropbox (Personal)\Annat\Kod\rclamp\test_folder
+templates_dir_mac: D:\Dropbox (Personal)\Annat\Kod\rclamp\test_folder\templates
 pipeline_dir_name: 00_pipeline
 work_dir_name: 02_work
 dailies_dir_name: 03_dailies
 deliveries_dir_name: 04_deliveries
 extra_dir_names:
   - 01_preproduction
+
+# The first subdir is the work-dir, the second is the output-dir.
 work_sub_dirs:
   - 01_work
   - 02_output

@@ -1,5 +1,6 @@
 pub const EXPLORER: &str = "explorer";
 pub const FINDER: &str = "finder";
+pub const PROJECT_FILE_NAME: &str = "project.yaml";
 
 pub fn sanitize_string(mut s: String) -> String {
     let mut output = String::new();

@@ -16,6 +16,7 @@ use std::path::PathBuf;
 pub struct TaskNodeMetadata {
     pub is_task: bool,
     pub work_dir_name: String,
+    pub output_dir_name: String,
 }
 
 /// Represents a directory.
@@ -29,7 +30,11 @@ pub struct TaskTreeNode {
 
 impl TaskTreeNode {
     /// Returns a new representation of a task directory, from a given path.
-    pub fn from_path(path: PathBuf) -> Result<TaskTreeNode, io::Error> {
+    pub fn from_path(
+        path: PathBuf,
+        work_dir_name: &str,
+        output_dir_name: &str,
+    ) -> Result<TaskTreeNode, io::Error> {
         let name = String::from(
             path.file_name()
                 .unwrap_or(OsStr::new(""))
@@ -37,14 +42,15 @@ impl TaskTreeNode {
                 .unwrap_or(""),
         );
 
-        let mut node = TaskTreeNode::new(name.clone(), path.clone());
-        
+        let mut node =
+            TaskTreeNode::new(name.clone(), path.clone(), work_dir_name, output_dir_name);
+
         let mut check_for_work = path.clone();
         let mut check_for_output = path.clone();
-        
-        check_for_work.push("01_work");
-        check_for_output.push("02_output");
-        
+
+        check_for_work.push(work_dir_name);
+        check_for_output.push(output_dir_name);
+
         if check_for_work.is_dir() && check_for_output.is_dir() {
             node.metadata.is_task = true;
             info!("Found task: {} at {}", &name, &path.display());
@@ -67,7 +73,7 @@ impl TaskTreeNode {
                 continue;
             }
 
-            let child = match TaskTreeNode::from_path(item.path()) {
+            let child = match TaskTreeNode::from_path(item.path(), work_dir_name, output_dir_name) {
                 Ok(c) => c,
                 Err(e) => return Err(e),
             };
@@ -79,12 +85,15 @@ impl TaskTreeNode {
     }
 
     /// Returns a new representation of a task directory.
-    pub fn new(name: String, path: PathBuf) -> Self {
+    pub fn new(name: String, path: PathBuf, work_dir_name: &str, output_dir_name: &str) -> Self {
         Self {
             name: name,
             path: path,
-            metadata: TaskNodeMetadata { is_task: false,
-            work_dir_name: String::from("01_work") },
+            metadata: TaskNodeMetadata {
+                is_task: false,
+                work_dir_name: String::from(work_dir_name),
+                output_dir_name: String::from(output_dir_name),
+            },
             children: Vec::new(),
         }
     }

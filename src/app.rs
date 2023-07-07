@@ -25,8 +25,10 @@ struct RclampAppConfig {
 
 #[derive(serde::Deserialize, serde::Serialize)]
 struct RclampConfig {
-    projects_dir: String,
-    templates_dir: String,
+    projects_dir_win: String,
+    templates_dir_win: String,
+    projects_dir_mac: String,
+    templates_dir_mac: String,
     pipeline_dir_name: String,
     work_dir_name: String,
     dailies_dir_name: String,
@@ -97,7 +99,10 @@ impl Default for Rclamp {
         let mut projects: Vec<Project> = Vec::new();
         match Project::find_projects(projects_dir, template_project.clone()) {
             Ok(p) => projects = p,
-            Err(e) => warning_message = String::from(format!("Error finding projects: {}", e)),
+            Err(e) => {
+                error!("{}", e);
+                warning_message = String::from(format!("Error finding projects: {}", e));
+            }
         };
 
         let projects_filtered = projects.clone();
@@ -105,9 +110,12 @@ impl Default for Rclamp {
         let mut dcc = Vec::new();
         match Dcc::find_dcc(&templates_dir) {
             Ok(d) => dcc = d,
-            Err(e) => warning_message = String::from(format!("Error finding dcc's: {}", e)),
+            Err(e) => {
+                error!("{}", e);
+                warning_message = String::from(format!("Error finding DCC:s: {}", e));
+            }
         };
-        let empty_task = TaskTreeNode::new(String::new(), PathBuf::new());
+        let empty_task = TaskTreeNode::new(String::new(), PathBuf::new(), "01_work", "02_output");
 
         Self {
             current_project: None,
@@ -153,65 +161,18 @@ impl Default for Rclamp {
 
 impl Rclamp {
     /// Called once before the first frame.
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
 
         // Load previous app state (if any).
         // Note that you must enable the `persistence` feature for this to work.
 
-        /*
         if let Some(storage) = cc.storage {
             return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         }
-        */
 
-        info!("Checking env var for config.");
-        let config_path: String = match env::var("RCLAMP_CONFIG") {
-            Ok(s) => s,
-            Err(e) => {
-                error!("Could not load env var: {}", e);
-                return Default::default();
-            }
-        };
-
-        info!("Found config path: {}", config_path);
-
-        let f = match std::fs::File::open(config_path) {
-            Ok(f) => f,
-            Err(e) => {
-                error!("Could not open config file: {}", e);
-                return Default::default();
-            }
-        };
-
-        let config: RclampConfig = match serde_yaml::from_reader(f) {
-            Ok(c) => c,
-            Err(e) => {
-                error!("Could not load config: {}", e);
-                return Default::default();
-            }
-        };
-        info!("Read config successfully.");
-
-        let mut rclamp = Rclamp::default();
-
-        let template_project = Project::new(
-            String::new(),
-            PathBuf::from(&config.projects_dir),
-            config.pipeline_dir_name,
-            config.work_dir_name,
-            config.dailies_dir_name,
-            config.deliveries_dir_name,
-            config.extra_dir_names,
-            config.work_sub_dirs,
-        );
-
-        rclamp.config.template_project = template_project;
-        rclamp.config.projects_dir = PathBuf::from(config.projects_dir);
-        rclamp.config.templates_dir = PathBuf::from(config.templates_dir);
-
-        rclamp
+        Self::default()
     }
 
     /// Simply sets the current project.
@@ -236,6 +197,7 @@ impl Rclamp {
             Some(t) => match t.find_workfiles(work_subdir) {
                 Ok(v) => v,
                 Err(e) => {
+                    error!("{}", e);
                     self.warning_message = String::from(format!("Error opening task: {}", e));
                     return;
                 }
@@ -248,7 +210,77 @@ impl Rclamp {
         self.files = Some(files);
     }
 
+    fn load_config(&mut self) -> Result<(), String> {
+        info!("Checking env var for config.");
+        let config_path: String = match env::var("RCLAMP_CONFIG") {
+            Ok(s) => s,
+            Err(e) => {
+                let message = format!("Could not load config: {}", e);
+                error!("{}", message);
+                return Err(message);
+            }
+        };
+
+        info!("Found config path: {}", config_path);
+
+        let f = match std::fs::File::open(config_path) {
+            Ok(f) => f,
+            Err(e) => {
+                let message = format!("Could not load config: {}", e);
+                error!("{}", message);
+                return Err(message);
+            }
+        };
+
+        let config: RclampConfig = match serde_yaml::from_reader(f) {
+            Ok(c) => c,
+            Err(e) => {
+                let message = format!("Could not load config: {}", e);
+                error!("{}", message);
+                return Err(message);
+            }
+        };
+        info!("Read config successfully.");
+
+        let mut rclamp = Rclamp::default();
+
+        let projects_dir = if cfg!(windows) {
+            PathBuf::from(&config.projects_dir_win)
+        } else {
+            PathBuf::from(&config.projects_dir_mac)
+        };
+
+        let template_project = Project::new(
+            String::new(),
+            projects_dir,
+            config.pipeline_dir_name,
+            config.work_dir_name,
+            config.dailies_dir_name,
+            config.deliveries_dir_name,
+            config.extra_dir_names,
+            config.work_sub_dirs,
+        );
+
+        rclamp.config.template_project = template_project;
+        if cfg!(windows) {
+            rclamp.config.projects_dir = PathBuf::from(config.projects_dir_win);
+            rclamp.config.templates_dir = PathBuf::from(config.templates_dir_win);
+        } else {
+            rclamp.config.projects_dir = PathBuf::from(config.projects_dir_mac);
+            rclamp.config.templates_dir = PathBuf::from(config.templates_dir_mac);
+        }
+
+        self.config = rclamp.config;
+
+        Ok(())
+    }
+
     fn refresh_all(&mut self, ui: &mut egui::Ui) {
+        match self.load_config() {
+            Ok(()) => (),
+            Err(e) => self.warning_message = String::from(e),
+        }
+
         self.refresh_projects();
         self.refresh_tasks(ui);
         self.refresh_files();
@@ -260,8 +292,15 @@ impl Rclamp {
             self.config.projects_dir.clone(),
             self.config.template_project.clone(),
         ) {
-            Ok(p) => self.projects = p,
-            Err(e) => self.warning_message = String::from(format!("Error finding projects: {}", e)),
+            Ok(p) => {
+                self.projects = p.clone();
+                self.project_filter = String::new();
+                self.projects_filtered = p;
+            }
+            Err(e) => {
+                error!("Error finding projects: {}", e);
+                self.warning_message = String::from(format!("Error finding projects: {}", e));
+            }
         }
     }
 
@@ -271,9 +310,14 @@ impl Rclamp {
             Some(p) => p.clone(),
             None => return,
         };
-        let tree = match TaskTreeNode::from_path(project.work_dir) {
+        let tree = match TaskTreeNode::from_path(
+            project.get_work_path(&self.config.projects_dir),
+            &project.work_sub_dirs[0],
+            &project.work_sub_dirs[1],
+        ) {
             Ok(t) => t,
             Err(e) => {
+                error!("{}", e);
                 self.render_task_tree_error(ui, e);
                 return;
             }
@@ -311,10 +355,10 @@ impl Rclamp {
                         let _ = &self.open_project(p.clone(), ui);
                     }
                     if open_dailies_button.clicked() {
-                        p.open_dailies_folder();
+                        p.open_dailies_folder(self.config.projects_dir.clone());
                     }
                     if open_deliveries_button.clicked() {
-                        p.open_deliveries_folder();
+                        p.open_deliveries_folder(self.config.projects_dir.clone());
                     }
                 });
             });
@@ -327,9 +371,14 @@ impl Rclamp {
     fn open_project(&mut self, project: Project, ui: &mut egui::Ui) {
         self.set_current_project(project.clone());
 
-        let tree = match TaskTreeNode::from_path(project.work_dir) {
+        let tree = match TaskTreeNode::from_path(
+            project.get_work_path(&self.config.projects_dir),
+            &project.work_sub_dirs[0],
+            &project.work_sub_dirs[1],
+        ) {
             Ok(t) => t,
             Err(e) => {
+                error!("{}", e);
                 self.render_task_tree_error(ui, e);
                 return;
             }
@@ -423,6 +472,7 @@ impl Rclamp {
                         self.new_folder_error = String::new();
                     }
                     Err(e) => {
+                        error!("{}", e);
                         self.new_folder_error =
                             String::from(format!("Error creating folder: {}", e));
                         self.new_folder_message = String::new();
@@ -455,7 +505,7 @@ impl Rclamp {
                         self.config.template_project.extra_dir_names.clone(),
                         self.config.template_project.work_sub_dirs.clone(),
                     )
-                    .create()
+                    .create(self.config.projects_dir.clone())
                     {
                         Ok(()) => {
                             self.new_project_message =
@@ -463,6 +513,7 @@ impl Rclamp {
                             self.new_project_error = String::new();
                         }
                         Err(e) => {
+                            error!("{}", e);
                             self.new_project_error =
                                 String::from(format!("Error creating project: {}", e));
                             self.new_project_message = String::new();
@@ -508,7 +559,10 @@ impl Rclamp {
                     self.new_file_type.clone(),
                 ) {
                     Ok(()) => (),
-                    Err(e) => self.warning_message = e.to_string(),
+                    Err(e) => {
+                        error!("{}", e);
+                        self.warning_message = e.to_string();
+                    }
                 }
                 self.refresh_files();
             }
@@ -704,6 +758,7 @@ impl Rclamp {
                                 match f.open() {
                                     Ok(()) => (),
                                     Err(e) => {
+                                        error!("{}", e);
                                         self.warning_message = format!("Error opening file: {}", e)
                                     }
                                 }
