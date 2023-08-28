@@ -57,6 +57,8 @@ impl Project {
         projects_dir: PathBuf,
         _template_project: Project,
     ) -> Result<Vec<Project>, io::Error> {
+        info!("Looking for projects in: {}", projects_dir.display());
+
         let mut projects: Vec<Project> = Vec::new();
 
         let dir_listing = match fs::read_dir(projects_dir) {

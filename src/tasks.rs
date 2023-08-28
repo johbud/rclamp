@@ -1,15 +1,22 @@
-use log::info;
-
 use crate::helpers::EXPLORER;
 use crate::helpers::FINDER;
 use crate::File;
 use crate::Project;
+use log::error;
+use log::info;
 
 use std::ffi::OsStr;
 use std::ffi::OsString;
 use std::fs::{self, DirEntry};
 use std::io;
 use std::path::PathBuf;
+
+const TASK_FILE_NAME: &str = "task.yaml";
+
+#[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
+struct Task {
+    name: String,
+}
 
 /// Can include additional metadata for task directories. Currently only informs whether a dir is a task or not.
 #[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
@@ -45,13 +52,10 @@ impl TaskTreeNode {
         let mut node =
             TaskTreeNode::new(name.clone(), path.clone(), work_dir_name, output_dir_name);
 
-        let mut check_for_work = path.clone();
-        let mut check_for_output = path.clone();
+        let mut check_for_task = path.clone();
+        check_for_task.push(PathBuf::from(TASK_FILE_NAME));
 
-        check_for_work.push(work_dir_name);
-        check_for_output.push(output_dir_name);
-
-        if check_for_work.is_dir() && check_for_output.is_dir() {
+        if check_for_task.exists() {
             node.metadata.is_task = true;
             info!("Found task: {} at {}", &name, &path.display());
             return Ok(node);
@@ -108,7 +112,7 @@ impl TaskTreeNode {
 
         match open::with(path, command) {
             Ok(()) => (),
-            Err(_e) => (),
+            Err(e) => error!("Failed to open output dir: {}", e),
         }
     }
 
@@ -121,12 +125,35 @@ impl TaskTreeNode {
     /// Create a task folder and subfolders on drive. Remember to refresh task tree in ui.
     pub fn create_task(&self, name: String, project: Project) -> Result<(), io::Error> {
         let mut task_path = self.path.clone();
-        task_path.push(PathBuf::from(name));
+        task_path.push(PathBuf::from(&name));
 
         match fs::create_dir(&task_path) {
             Ok(()) => (),
             Err(e) => return Err(e),
         };
+
+        let task = Task { name: name };
+        let mut file_path = task_path.clone();
+        file_path.push(PathBuf::from(TASK_FILE_NAME));
+        let file = match std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .open(file_path)
+        {
+            Ok(f) => f,
+            Err(e) => {
+                error!("Failed to open file for writing: {}", e);
+                return Err(e);
+            }
+        };
+
+        match serde_yaml::to_writer(file, &task) {
+            Ok(()) => (),
+            Err(e) => {
+                error!("Failed to write project file: {}", e);
+                return Err(io::Error::new(io::ErrorKind::Other, e.to_string()));
+            }
+        }
 
         for d in project.work_sub_dirs {
             let mut dir = task_path.clone();

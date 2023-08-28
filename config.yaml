@@ -1,7 +1,7 @@
-projects_dir_win: D:\Dropbox (Personal)\Annat\Kod\rclamp\test_folder
-templates_dir_win: D:\Dropbox (Personal)\Annat\Kod\rclamp\test_folder\templates
-projects_dir_mac: D:\Dropbox (Personal)\Annat\Kod\rclamp\test_folder
-templates_dir_mac: D:\Dropbox (Personal)\Annat\Kod\rclamp\test_folder\templates
+projects_dir_win: D:\Dropbox (Personal)\Kod\rclamp\test_folder
+templates_dir_win: D:\Dropbox (Personal)\Kod\rclamp\test_folder\templates
+projects_dir_mac: /Users/johnbuddee/Dropbox (Personal)/Kod/rclamp/test_folder
+templates_dir_mac: /Users/johnbuddee/Dropbox (Personal)/Kod/rclamp/test_folder/templates
 pipeline_dir_name: 00_pipeline
 work_dir_name: 02_work
 dailies_dir_name: 03_dailies

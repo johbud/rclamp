@@ -1,8 +1,11 @@
+use crate::helpers::EXPLORER;
+use crate::helpers::FINDER;
 use crate::{Project, TaskTreeNode};
 use log::{error, info};
+use std::ffi::OsString;
 use std::fs::{self};
 use std::io::{Error, ErrorKind};
-use std::{ffi::OsStr, io, path::PathBuf};
+use std::{ffi::OsStr, io, path::Path, path::PathBuf};
 
 /// Represents a workfile found on drive.
 #[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, PartialOrd, Ord, Eq, Clone)]
@@ -62,6 +65,63 @@ impl File {
         Ok(())
     }
 
+    pub fn reveal(&self) {
+        let path: PathBuf = self.path.clone();
+        let path = path.parent().unwrap_or(Path::new("").as_ref());
+        let path = OsString::from(path);
+
+        let command = if cfg!(windows) { EXPLORER } else { FINDER };
+
+        match open::with(path, command) {
+            Ok(()) => (),
+            Err(e) => error!("Failed to open output dir: {}", e),
+        }
+    }
+
+    pub fn version_up(&self) -> Result<(), io::Error> {
+        let mut new_version = self.clone();
+        new_version.increase_version_number();
+
+        let mut new_path = self.path.clone();
+        new_path = match new_path.parent() {
+            Some(p) => p.to_path_buf(),
+            None => {
+                return Err(io::Error::new(
+                    ErrorKind::Other,
+                    "Failed to extract parent/dirname.",
+                ))
+            }
+        };
+
+        new_path.push(PathBuf::from(new_version.make_filename_from_self()));
+
+        match new_path.try_exists() {
+            Ok(b) => {
+                if b {
+                    return Err(Error::new(ErrorKind::Other, "File already exists!"));
+                }
+            }
+            Err(e) => return Err(e),
+        }
+
+        match fs::copy(&self.path, &new_path) {
+            Ok(_u) => return Ok(()),
+            Err(e) => {
+                error!(
+                    "Failed to copy {} to {}: {}",
+                    &self.path.display(),
+                    &new_path.display(),
+                    e.to_string()
+                );
+                return Err(e);
+            }
+        }
+    }
+
+    fn increase_version_number(&mut self) {
+        self.version += 1;
+    }
+
     pub fn create_file(
         name: String,
         task: TaskTreeNode,
@@ -76,6 +136,15 @@ impl File {
             Err(e) => return Err(e),
         }
         Ok(())
+    }
+
+    fn make_filename_from_self(&self) -> String {
+        String::from(format!(
+            "{}_{}.{}",
+            self.name,
+            self.fmt_version(),
+            self.extension
+        ))
     }
 
     fn make_filename(name: &String, task: &TaskTreeNode, project: &Project, dcc: &Dcc) -> String {
@@ -139,6 +208,7 @@ impl Dcc {
     pub fn find_dcc(path: &PathBuf) -> Result<Vec<Dcc>, io::Error> {
         let mut dcc: Vec<Dcc> = Vec::new();
 
+        info!("Looking for DCC in: {}", path.display());
         let dir_listing = match fs::read_dir(path) {
             Ok(listing) => listing,
             Err(e) => return Err(e),

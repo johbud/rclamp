@@ -11,14 +11,24 @@ use crate::Project;
 use crate::TaskTreeNode;
 
 pub const SPACING: f32 = 5.;
-const TEST_PROJECT_PATH_WIN: &str = "D:\\Dropbox (Personal)\\Annat\\Kod\\rclamp\\test_folder";
-const TEST_PROJECT_PATH_MAC: &str =
-    "/Users/johnbuddee/Dropbox (Personal)/Annat/Kod/rclamp/test_folder";
+const CONFIG_ENV_VAR: &str = "RCLAMP_CONFIG";
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct Message {
+    text: String,
+    message_type: MessageType,
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+enum MessageType {
+    Info,
+    Warning,
+}
 
 #[derive(serde::Deserialize, serde::Serialize)]
 struct RclampAppConfig {
     dark_mode: bool,
-    projects_dir: PathBuf,
+    projects_dir: Option<PathBuf>,
     templates_dir: PathBuf,
     template_project: Project,
 }
@@ -49,37 +59,28 @@ pub struct Rclamp {
     dcc: Vec<Dcc>,
     config: RclampAppConfig,
 
-    warning_message: String,
+    message: Option<Message>,
     show_create_project: bool,
     show_create_task: bool,
     show_create_folder: bool,
     new_project_name: String,
-    new_project_message: String,
-    new_project_error: String,
     new_task_name: String,
     new_folder_name: String,
     new_task_parent: TaskTreeNode,
     new_folder_parent: TaskTreeNode,
-    new_task_message: String,
-    new_folder_message: String,
-    new_task_error: String,
-    new_folder_error: String,
     new_file_name: String,
-    new_file_error: String,
     new_file_type: Dcc,
     project_filter: String,
 }
 
 impl Default for Rclamp {
     fn default() -> Self {
-        let test_project_path = if cfg!(windows) {
-            TEST_PROJECT_PATH_WIN
-        } else {
-            TEST_PROJECT_PATH_MAC
-        };
-        let projects_dir = PathBuf::from(test_project_path);
+        let projects_dir = PathBuf::new();
+
         let mut templates_dir = projects_dir.clone();
+
         templates_dir.push(PathBuf::from("templates"));
+
         let template_project = Project::new(
             String::new(),
             projects_dir.clone(),
@@ -95,26 +96,11 @@ impl Default for Rclamp {
             ]),
         );
 
-        let mut warning_message = String::new();
-        let mut projects: Vec<Project> = Vec::new();
-        match Project::find_projects(projects_dir, template_project.clone()) {
-            Ok(p) => projects = p,
-            Err(e) => {
-                error!("{}", e);
-                warning_message = String::from(format!("Error finding projects: {}", e));
-            }
-        };
-
+        let message: Option<Message> = None;
+        let projects: Vec<Project> = Vec::new();
         let projects_filtered = projects.clone();
+        let dcc = Vec::new();
 
-        let mut dcc = Vec::new();
-        match Dcc::find_dcc(&templates_dir) {
-            Ok(d) => dcc = d,
-            Err(e) => {
-                error!("{}", e);
-                warning_message = String::from(format!("Error finding DCC:s: {}", e));
-            }
-        };
         let empty_task = TaskTreeNode::new(String::new(), PathBuf::new(), "01_work", "02_output");
 
         Self {
@@ -127,28 +113,21 @@ impl Default for Rclamp {
             dcc,
             config: RclampAppConfig {
                 dark_mode: true,
-                projects_dir: PathBuf::from(test_project_path),
+                projects_dir: None,
                 templates_dir,
                 template_project,
             },
 
-            warning_message,
+            message,
             show_create_project: false,
             show_create_task: false,
             show_create_folder: false,
             new_project_name: String::new(),
-            new_project_message: String::new(),
-            new_project_error: String::new(),
             new_task_name: String::new(),
             new_folder_name: String::new(),
             new_task_parent: empty_task.clone(),
             new_folder_parent: empty_task.clone(),
-            new_task_message: String::new(),
-            new_folder_message: String::new(),
-            new_task_error: String::new(),
-            new_folder_error: String::new(),
             new_file_name: String::new(),
-            new_file_error: String::new(),
             new_file_type: Dcc {
                 name: String::new(),
                 extension: String::new(),
@@ -161,17 +140,62 @@ impl Default for Rclamp {
 
 impl Rclamp {
     /// Called once before the first frame.
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
 
         // Load previous app state (if any).
         // Note that you must enable the `persistence` feature for this to work.
+        info!("Initializing app.");
 
+        /*
         if let Some(storage) = cc.storage {
+            info!("Reading stored app state.");
             return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         }
+        */
 
+        match Rclamp::load_config() {
+            Ok(mut r) => {
+                match Dcc::find_dcc(&r.config.templates_dir) {
+                    Ok(d) => r.dcc = d,
+                    Err(e) => {
+                        error!("Error finding DCC:s: {}", e);
+                        r.message = Some(Message {
+                            text: String::from(format!("Error finding DCC:s: {}", e)),
+                            message_type: MessageType::Warning,
+                        });
+                    }
+                };
+
+                let projects_dir = match &r.config.projects_dir {
+                    Some(d) => d.clone(),
+                    None => {
+                        error!("No project dir, using defaults.");
+                        return Self::default();
+                    }
+                };
+
+                match Project::find_projects(projects_dir, r.config.template_project.clone()) {
+                    Ok(p) => {
+                        r.projects = p.clone();
+                        r.project_filter = String::new();
+                        r.projects_filtered = p;
+                    }
+
+                    Err(e) => {
+                        error!("Error finding projects: {}", e);
+                        r.message = Some(Message {
+                            text: String::from(format!("Error finding projects: {}", e)),
+                            message_type: MessageType::Warning,
+                        });
+                    }
+                }
+
+                return r;
+            }
+            Err(e) => error!("Could not find config, using defaults: {}", e),
+        }
         Self::default()
     }
 
@@ -197,8 +221,12 @@ impl Rclamp {
             Some(t) => match t.find_workfiles(work_subdir) {
                 Ok(v) => v,
                 Err(e) => {
-                    error!("{}", e);
-                    self.warning_message = String::from(format!("Error opening task: {}", e));
+                    error!("Error opening task: {}", e);
+                    self.message = Some(Message {
+                        text: String::from(format!("Error opening task: {}", e)),
+                        message_type: MessageType::Warning,
+                    });
+                    self.current_task = None;
                     return;
                 }
             },
@@ -210,9 +238,9 @@ impl Rclamp {
         self.files = Some(files);
     }
 
-    fn load_config(&mut self) -> Result<(), String> {
+    fn load_config() -> Result<Rclamp, String> {
         info!("Checking env var for config.");
-        let config_path: String = match env::var("RCLAMP_CONFIG") {
+        let config_path: String = match env::var(CONFIG_ENV_VAR) {
             Ok(s) => s,
             Err(e) => {
                 let message = format!("Could not load config: {}", e);
@@ -240,6 +268,7 @@ impl Rclamp {
                 return Err(message);
             }
         };
+
         info!("Read config successfully.");
 
         let mut rclamp = Rclamp::default();
@@ -263,12 +292,21 @@ impl Rclamp {
 
         rclamp.config.template_project = template_project;
         if cfg!(windows) {
-            rclamp.config.projects_dir = PathBuf::from(config.projects_dir_win);
+            rclamp.config.projects_dir = Some(PathBuf::from(config.projects_dir_win));
             rclamp.config.templates_dir = PathBuf::from(config.templates_dir_win);
         } else {
-            rclamp.config.projects_dir = PathBuf::from(config.projects_dir_mac);
+            rclamp.config.projects_dir = Some(PathBuf::from(config.projects_dir_mac));
             rclamp.config.templates_dir = PathBuf::from(config.templates_dir_mac);
         }
+
+        Ok(rclamp)
+    }
+
+    fn load_config_refresh(&mut self) -> Result<(), String> {
+        let rclamp = match Rclamp::load_config() {
+            Ok(r) => r,
+            Err(e) => return Err(e),
+        };
 
         self.config = rclamp.config;
 
@@ -276,22 +314,46 @@ impl Rclamp {
     }
 
     fn refresh_all(&mut self, ui: &mut egui::Ui) {
-        match self.load_config() {
+        self.message = None;
+        match self.load_config_refresh() {
             Ok(()) => (),
-            Err(e) => self.warning_message = String::from(e),
+            Err(e) => {
+                self.message = Some(Message {
+                    text: String::from(e),
+                    message_type: MessageType::Warning,
+                })
+            }
         }
-
+        self.refresh_dcc();
         self.refresh_projects();
         self.refresh_tasks(ui);
         self.refresh_files();
     }
 
+    /// Refreshes the list of DCC:s
+    fn refresh_dcc(&mut self) {
+        let mut dcc = Vec::new();
+        match Dcc::find_dcc(&self.config.templates_dir) {
+            Ok(d) => dcc = d,
+            Err(e) => {
+                error!("Error finding DCC:s: {}", e);
+                self.message = Some(Message {
+                    text: String::from(format!("Error finding DCC:s: {}", e)),
+                    message_type: MessageType::Warning,
+                });
+            }
+        };
+        self.dcc = dcc;
+    }
+
     /// Refreshes the list of projects by calling find_projects.
     fn refresh_projects(&mut self) {
-        match Project::find_projects(
-            self.config.projects_dir.clone(),
-            self.config.template_project.clone(),
-        ) {
+        let projects_dir = match &self.config.projects_dir {
+            Some(d) => d.clone(),
+            None => return,
+        };
+
+        match Project::find_projects(projects_dir, self.config.template_project.clone()) {
             Ok(p) => {
                 self.projects = p.clone();
                 self.project_filter = String::new();
@@ -299,7 +361,13 @@ impl Rclamp {
             }
             Err(e) => {
                 error!("Error finding projects: {}", e);
-                self.warning_message = String::from(format!("Error finding projects: {}", e));
+                self.message = Some(Message {
+                    text: String::from(format!("Error finding projects: {}", e)),
+                    message_type: MessageType::Warning,
+                });
+                self.current_project_task_tree = None;
+                self.current_project = None;
+                self.current_task = None;
             }
         }
     }
@@ -310,15 +378,24 @@ impl Rclamp {
             Some(p) => p.clone(),
             None => return,
         };
+
+        let projects_dir = match &self.config.projects_dir {
+            Some(d) => d.clone(),
+            None => return,
+        };
+
         let tree = match TaskTreeNode::from_path(
-            project.get_work_path(&self.config.projects_dir),
+            project.get_work_path(&projects_dir),
             &project.work_sub_dirs[0],
             &project.work_sub_dirs[1],
         ) {
             Ok(t) => t,
             Err(e) => {
-                error!("{}", e);
+                error!("Error creating task tree: {}", e);
                 self.render_task_tree_error(ui, e);
+                self.current_project_task_tree = None;
+                self.current_project = None;
+                self.current_task = None;
                 return;
             }
         };
@@ -355,10 +432,16 @@ impl Rclamp {
                         let _ = &self.open_project(p.clone(), ui);
                     }
                     if open_dailies_button.clicked() {
-                        p.open_dailies_folder(self.config.projects_dir.clone());
+                        match &self.config.projects_dir {
+                            Some(d) => p.open_dailies_folder(d.clone()),
+                            None => (),
+                        };
                     }
                     if open_deliveries_button.clicked() {
-                        p.open_deliveries_folder(self.config.projects_dir.clone());
+                        match &self.config.projects_dir {
+                            Some(d) => p.open_deliveries_folder(d.clone()),
+                            None => (),
+                        };
                     }
                 });
             });
@@ -371,14 +454,19 @@ impl Rclamp {
     fn open_project(&mut self, project: Project, ui: &mut egui::Ui) {
         self.set_current_project(project.clone());
 
+        let project_dir = match &self.config.projects_dir {
+            Some(d) => d.clone(),
+            None => return,
+        };
+
         let tree = match TaskTreeNode::from_path(
-            project.get_work_path(&self.config.projects_dir),
+            project.get_work_path(&project_dir),
             &project.work_sub_dirs[0],
             &project.work_sub_dirs[1],
         ) {
             Ok(t) => t,
             Err(e) => {
-                error!("{}", e);
+                error!("Error creating task tree: {}", e);
                 self.render_task_tree_error(ui, e);
                 return;
             }
@@ -394,20 +482,25 @@ impl Rclamp {
             ui.text_edit_singleline(&mut self.new_task_name);
             let create_task_btn = ui.add(egui::Button::new("Create"));
             let cancel_btn = ui.add(egui::Button::new("❌ Cancel"));
+            ui.label(egui::RichText::new(sanitize_string(
+                self.new_task_name.clone(),
+            )));
 
             ui.add_space(SPACING);
 
             if cancel_btn.clicked() {
                 self.show_create_task = false;
-                self.new_task_error = String::new();
-                self.new_task_message = String::new();
+                self.message = None;
             }
 
             if create_task_btn.clicked() {
                 let project = match &self.current_project {
                     Some(p) => p.clone(),
                     None => {
-                        self.new_task_error = String::from("No project open.");
+                        self.message = Some(Message {
+                            text: String::from("No project open."),
+                            message_type: MessageType::Warning,
+                        });
                         return;
                     }
                 };
@@ -420,12 +513,16 @@ impl Rclamp {
 
                 match self.new_task_parent.create_task(task_name, project) {
                     Ok(()) => {
-                        self.new_task_message = String::from("Successfully created task.");
-                        self.new_task_error = String::new();
+                        self.message = Some(Message {
+                            text: String::from("Successfully created task."),
+                            message_type: MessageType::Info,
+                        });
                     }
                     Err(e) => {
-                        self.new_task_error = String::from(format!("Error creating task: {}", e));
-                        self.new_task_message = String::new();
+                        self.message = Some(Message {
+                            text: String::from(format!("Error creating task: {}", e)),
+                            message_type: MessageType::Warning,
+                        });
                     }
                 }
                 self.refresh_tasks(ui);
@@ -442,40 +539,37 @@ impl Rclamp {
             ui.text_edit_singleline(&mut self.new_folder_name);
             let create_folder_btn = ui.add(egui::Button::new("Create"));
             let cancel_btn = ui.add(egui::Button::new("❌ Cancel"));
+            ui.label(egui::RichText::new(sanitize_string(
+                self.new_folder_name.clone(),
+            )));
 
             ui.add_space(SPACING);
 
             if cancel_btn.clicked() {
                 self.show_create_folder = false;
-                self.new_folder_error = String::new();
-                self.new_folder_message = String::new();
+                self.message = None;
             }
 
             if create_folder_btn.clicked() {
-                let project = match &self.current_project {
-                    Some(p) => p.clone(),
-                    None => {
-                        self.new_task_error = String::from("No project open.");
-                        return;
-                    }
-                };
-
                 let folder_name = sanitize_string(self.new_folder_name.clone());
 
                 if folder_name.is_empty() {
                     return;
                 }
 
-                match self.new_folder_parent.create_task(folder_name, project) {
+                match self.new_folder_parent.create_folder(folder_name) {
                     Ok(()) => {
-                        self.new_folder_message = String::from("Successfully created folder.");
-                        self.new_folder_error = String::new();
+                        self.message = Some(Message {
+                            text: String::from("Successfully created folder."),
+                            message_type: MessageType::Info,
+                        });
                     }
                     Err(e) => {
-                        error!("{}", e);
-                        self.new_folder_error =
-                            String::from(format!("Error creating folder: {}", e));
-                        self.new_folder_message = String::new();
+                        error!("Error creating folder: {}", e);
+                        self.message = Some(Message {
+                            text: String::from(format!("Error creating folder: {}", e)),
+                            message_type: MessageType::Warning,
+                        });
                     }
                 }
                 self.refresh_tasks(ui);
@@ -485,19 +579,36 @@ impl Rclamp {
     }
 
     /// Shows a dialog for creating projects.
-    fn create_project_dialog(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn create_project_dialog(
+        &mut self,
+        ui: &mut egui::Ui,
+        ctx: &egui::Context,
+        _frame: &mut eframe::Frame,
+    ) {
         ui.add_space(SPACING);
         ui.horizontal(|ui| {
-            ui.text_edit_singleline(&mut self.new_project_name);
+            let project_name_field = ui.text_edit_singleline(&mut self.new_project_name);
             let create_project_btn = ui.add(egui::Button::new("Create"));
+
+            ui.label(egui::RichText::new(sanitize_string(
+                self.new_project_name.clone(),
+            )));
 
             ui.add_space(SPACING);
 
-            if create_project_btn.clicked() {
+            let projects_dir = match &self.config.projects_dir {
+                Some(d) => d.clone(),
+                None => return,
+            };
+
+            if create_project_btn.clicked()
+                || (project_name_field.lost_focus()
+                    && ctx.input(|i| i.key_pressed(egui::Key::Enter)))
+            {
                 if self.new_project_name.len() > 0 {
                     match Project::new(
-                        self.new_project_name.clone(),
-                        self.config.projects_dir.clone(),
+                        sanitize_string(self.new_project_name.clone()),
+                        projects_dir.clone(),
                         self.config.template_project.pipeline_dir_name.clone(),
                         self.config.template_project.work_dir_name.clone(),
                         self.config.template_project.dailies_dir_name.clone(),
@@ -505,18 +616,20 @@ impl Rclamp {
                         self.config.template_project.extra_dir_names.clone(),
                         self.config.template_project.work_sub_dirs.clone(),
                     )
-                    .create(self.config.projects_dir.clone())
+                    .create(projects_dir.clone())
                     {
                         Ok(()) => {
-                            self.new_project_message =
-                                String::from("Successfully created project.");
-                            self.new_project_error = String::new();
+                            self.message = Some(Message {
+                                text: String::from("Successfully created new project"),
+                                message_type: MessageType::Info,
+                            });
                         }
                         Err(e) => {
-                            error!("{}", e);
-                            self.new_project_error =
-                                String::from(format!("Error creating project: {}", e));
-                            self.new_project_message = String::new();
+                            error!("Error creating project: {}", e);
+                            self.message = Some(Message {
+                                text: String::from(format!("Error creating project: {}", e)),
+                                message_type: MessageType::Warning,
+                            });
                         }
                     }
                     self.refresh_projects();
@@ -539,6 +652,9 @@ impl Rclamp {
                     }
                 });
             let create_file_btn = ui.add(egui::Button::new("Create"));
+            ui.label(egui::RichText::new(sanitize_string(
+                self.new_file_name.clone(),
+            )));
             if create_file_btn.clicked() {
                 if self.current_project.is_none() {
                     return;
@@ -560,8 +676,11 @@ impl Rclamp {
                 ) {
                     Ok(()) => (),
                     Err(e) => {
-                        error!("{}", e);
-                        self.warning_message = e.to_string();
+                        error!("Error creating task: {}", e);
+                        self.message = Some(Message {
+                            text: String::from(format!("Error creating task: {}", e)),
+                            message_type: MessageType::Warning,
+                        });
                     }
                 }
                 self.refresh_files();
@@ -570,7 +689,7 @@ impl Rclamp {
     }
 
     /// Top bar containing a few buttons.
-    fn render_top_bar(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+    fn render_top_bar(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         egui::menu::bar(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.with_layout(egui::Layout::left_to_right(egui::Align::RIGHT), |ui| {
@@ -581,9 +700,8 @@ impl Rclamp {
                         text = String::from("❌ Close");
                     }
                     if ui.add(egui::Button::new(text)).clicked() {
-                        self.new_project_error = String::new();
                         self.new_project_name = String::new();
-                        self.new_project_message = String::new();
+                        self.message = None;
                         self.open_or_close_create_project();
                     }
                 });
@@ -591,30 +709,26 @@ impl Rclamp {
                     egui::Layout::centered_and_justified(egui::Direction::RightToLeft),
                     |ui| {
                         ui.with_layout(egui::Layout::left_to_right(egui::Align::LEFT), |ui| {
-                            ui.label(format!("{}", self.warning_message));
-                            ui.label(&self.new_folder_message);
-                            ui.label(
-                                egui::RichText::new(&self.new_folder_error).color(Color32::RED),
-                            );
-                            ui.label(&self.new_project_message);
-                            ui.label(
-                                egui::RichText::new(&self.new_project_error).color(Color32::RED),
-                            );
-                            ui.label(&self.new_task_message);
-                            ui.label(egui::RichText::new(&self.new_task_error).color(Color32::RED));
+                            match &self.message {
+                                Some(m) => {
+                                    match m.message_type {
+                                        MessageType::Info => ui.label(&m.text),
+                                        MessageType::Warning => ui.label(
+                                            egui::RichText::new(&m.text).color(Color32::RED),
+                                        ),
+                                    };
+                                }
+                                None => (),
+                            }
                         });
                     },
                 );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
                     let theme_icon = if self.config.dark_mode { "☀" } else { "🌙" };
-                    let close_btn = ui.add(egui::Button::new("❌"));
                     let refresh_btn = ui.add(egui::Button::new("🔄"));
                     let theme_btn = ui.add(egui::Button::new(theme_icon));
 
-                    if close_btn.clicked() {
-                        frame.close();
-                    }
                     if theme_btn.clicked() {
                         self.config.dark_mode = !self.config.dark_mode;
                     }
@@ -640,15 +754,13 @@ impl Rclamp {
                 ui.add_space(SPACING);
 
                 if new_folder_btn.clicked() {
-                    self.new_folder_error = String::new();
-                    self.new_folder_message = String::new();
+                    self.message = None;
                     self.new_folder_name = String::new();
                     self.new_folder_parent = task.clone();
                     self.open_create_folder();
                 }
                 if new_task_btn.clicked() {
-                    self.new_task_error = String::new();
-                    self.new_task_message = String::new();
+                    self.message = None;
                     self.new_task_name = String::new();
                     self.new_task_parent = task.clone();
                     self.open_create_task();
@@ -673,15 +785,13 @@ impl Rclamp {
                             ui.add_space(SPACING);
 
                             if new_folder_btn.clicked() {
-                                self.new_folder_error = String::new();
-                                self.new_folder_message = String::new();
+                                self.message = None;
                                 self.new_folder_name = String::new();
                                 self.new_folder_parent = task.clone();
                                 self.open_create_folder();
                             }
                             if new_task_btn.clicked() {
-                                self.new_task_error = String::new();
-                                self.new_task_message = String::new();
+                                self.message = None;
                                 self.new_task_name = String::new();
                                 self.new_task_parent = task.clone();
                                 self.open_create_task();
@@ -751,18 +861,35 @@ impl Rclamp {
                 for f in &files {
                     body.row(20., |mut row| {
                         row.col(|ui| {
-                            if ui
-                                .add(egui::Label::new(&f.name).sense(egui::Sense::click()))
-                                .double_clicked()
-                            {
-                                match f.open() {
-                                    Ok(()) => (),
-                                    Err(e) => {
-                                        error!("{}", e);
-                                        self.warning_message = format!("Error opening file: {}", e)
-                                    }
-                                }
+                            let filename_label =
+                                ui.add(egui::Label::new(&f.name).sense(egui::Sense::click()));
+                            if filename_label.double_clicked() {
+                                self.open_file(&f);
                             }
+                            filename_label.context_menu(|ui| {
+                                let open_btn = ui.button("Open");
+                                let new_version_btn = ui.button("New version");
+                                let reveal_btn = ui.button("Reveal in Explorer");
+
+                                if open_btn.clicked() {
+                                    self.open_file(&f);
+                                }
+                                if new_version_btn.clicked() {
+                                    match f.version_up() {
+                                        Ok(()) => (),
+                                        Err(e) => {
+                                            self.message = Some(Message {
+                                                text: e.to_string(),
+                                                message_type: MessageType::Warning,
+                                            })
+                                        }
+                                    }
+                                    self.refresh_files();
+                                }
+                                if reveal_btn.clicked() {
+                                    f.reveal();
+                                }
+                            });
                         });
                         row.col(|ui| {
                             ui.label(&f.fmt_version());
@@ -773,6 +900,19 @@ impl Rclamp {
                     })
                 }
             });
+    }
+
+    fn open_file(&mut self, f: &File) {
+        match &f.open() {
+            Ok(()) => (),
+            Err(e) => {
+                error!("Error opening file: {}", e);
+                self.message = Some(Message {
+                    text: String::from(format!("Error opening file: {}", e)),
+                    message_type: MessageType::Warning,
+                });
+            }
+        }
     }
 
     fn filter_projects(&mut self, filter_string: String) {
@@ -826,7 +966,7 @@ impl eframe::App for Rclamp {
 
         if self.show_create_project {
             egui::TopBottomPanel::top("create_project_panel").show(ctx, |ui| {
-                self.create_project_dialog(ui, frame);
+                self.create_project_dialog(ui, ctx, frame);
             });
         }
 
