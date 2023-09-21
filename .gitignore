@@ -3,3 +3,4 @@
 /test_folder
 /.vscode
 Cargo.lock
+.DS_Store

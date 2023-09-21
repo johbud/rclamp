@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["John Buddee"]
 edition = "2021"
 rust-version = "1.65"
+description = "Pipeline tool created for Crosby"
 
 
 [dependencies]
@@ -54,3 +55,8 @@ opt-level = 2
 # If you fork https://github.com/emilk/egui you can test with:
 # egui = { path = "../egui/crates/egui" }
 # eframe = { path = "../egui/crates/eframe" }
+
+
+[package.metadata.bundle]
+name = "Rclamp"
+identifier = "com.crosby.rclamp"
