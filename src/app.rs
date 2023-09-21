@@ -233,7 +233,6 @@ impl Rclamp {
             },
             None => return,
         };
-        println!("{:?}", self.config.ignore_extensions);
         Self::filter_files(&mut files, self.config.ignore_extensions.clone());
         files.sort();
         files.reverse();
