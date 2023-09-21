@@ -201,7 +201,9 @@ impl TaskTreeNode {
             }
 
             match File::from_path(item.path()) {
-                Ok(f) => files.push(f),
+                Ok(f) => {
+                    files.push(f);
+                }
                 Err(_e) => continue,
             };
         }

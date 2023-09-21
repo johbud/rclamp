@@ -14,3 +14,6 @@ work_sub_dirs:
   - 01_work
   - 02_output
   - 03_assets
+
+ignore_extensions:
+  - test

@@ -31,6 +31,7 @@ struct RclampAppConfig {
     projects_dir: Option<PathBuf>,
     templates_dir: PathBuf,
     template_project: Project,
+    ignore_extensions: Vec<String>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -45,6 +46,7 @@ struct RclampConfig {
     deliveries_dir_name: String,
     extra_dir_names: Vec<String>,
     work_sub_dirs: Vec<String>,
+    ignore_extensions: Vec<String>,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -116,6 +118,7 @@ impl Default for Rclamp {
                 projects_dir: None,
                 templates_dir,
                 template_project,
+                ignore_extensions: Vec::new(),
             },
 
             message,
@@ -140,7 +143,7 @@ impl Default for Rclamp {
 
 impl Rclamp {
     /// Called once before the first frame.
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
 
@@ -148,12 +151,10 @@ impl Rclamp {
         // Note that you must enable the `persistence` feature for this to work.
         info!("Initializing app.");
 
-        /*
         if let Some(storage) = cc.storage {
             info!("Reading stored app state.");
             return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
         }
-        */
 
         match Rclamp::load_config() {
             Ok(mut r) => {
@@ -204,7 +205,7 @@ impl Rclamp {
         self.current_project = Some(project);
     }
 
-    pub fn set_current_task(&mut self, task: TaskTreeNode) {
+    fn set_current_task(&mut self, task: TaskTreeNode) {
         let work_subdir = match &self.current_project {
             Some(p) => p
                 .work_sub_dirs
@@ -232,10 +233,15 @@ impl Rclamp {
             },
             None => return,
         };
-
+        println!("{:?}", self.config.ignore_extensions);
+        Self::filter_files(&mut files, self.config.ignore_extensions.clone());
         files.sort();
         files.reverse();
         self.files = Some(files);
+    }
+
+    fn filter_files(files: &mut Vec<File>, ignore_extensions: Vec<String>) {
+        files.retain(|i| !ignore_extensions.contains(&i.extension));
     }
 
     fn load_config() -> Result<Rclamp, String> {
@@ -298,6 +304,8 @@ impl Rclamp {
             rclamp.config.projects_dir = Some(PathBuf::from(config.projects_dir_mac));
             rclamp.config.templates_dir = PathBuf::from(config.templates_dir_mac);
         }
+
+        rclamp.config.ignore_extensions = config.ignore_extensions;
 
         Ok(rclamp)
     }
@@ -664,9 +672,12 @@ impl Rclamp {
                 }
 
                 let file_name = sanitize_string(self.new_file_name.clone());
+
+                /*
                 if file_name.is_empty() {
                     return;
                 }
+                */
 
                 match File::create_file(
                     file_name,
