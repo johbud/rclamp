@@ -427,17 +427,16 @@ impl Rclamp {
             ui.add_space(SPACING);
             ui.horizontal(|ui| {
                 ui.vertical(|ui| {
-                    ui.label(title);
+                    let name_label = ui.add(egui::Label::new(title).sense(egui::Sense::click()));
+                    if name_label.clicked() {
+                        let _ = &self.open_project(p.clone(), ui);
+                    }
                 });
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
-                    let open_button = ui.add(egui::Button::new("Open"));
                     let open_deliveries_button = ui.add(egui::Button::new("Deliveries"));
                     let open_dailies_button = ui.add(egui::Button::new("Dailies"));
 
-                    if open_button.clicked() {
-                        let _ = &self.open_project(p.clone(), ui);
-                    }
                     if open_dailies_button.clicked() {
                         match &self.config.projects_dir {
                             Some(d) => p.open_dailies_folder(d.clone()),
@@ -817,15 +816,14 @@ impl Rclamp {
         } else {
             ui.add_space(SPACING);
             ui.horizontal(|ui| {
-                ui.label(&task.name);
+                let task_label = ui.add(egui::Label::new(&task.name).sense(egui::Sense::click()));
+                if task_label.clicked() {
+                    self.set_current_task(task.clone())
+                }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
-                    let open_btn = ui.add(egui::Button::new("Open"));
                     let output_btn = ui.add(egui::Button::new("Output"));
                     ui.add_space(SPACING);
 
-                    if open_btn.clicked() {
-                        self.set_current_task(task.clone())
-                    }
                     if output_btn.clicked() {
                         task.open_output();
                     }
@@ -1006,7 +1004,7 @@ impl eframe::App for Rclamp {
                     None => String::new(),
                 };
 
-                ui.label(format!("Current project: {}", project_name));
+                ui.strong(format!("Current project: {}", project_name));
             });
             ui.add(egui::Separator::default());
             ui.add_space(SPACING);
