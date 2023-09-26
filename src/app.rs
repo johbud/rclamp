@@ -11,6 +11,7 @@ use crate::Project;
 use crate::TaskTreeNode;
 
 pub const SPACING: f32 = 5.;
+pub const TEXTEDIT_WIDTH: f32 = 125.;
 const CONFIG_ENV_VAR: &str = "RCLAMP_CONFIG";
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -485,7 +486,9 @@ impl Rclamp {
         ui.add_space(SPACING);
         ui.horizontal(|ui| {
             ui.label("Task name: ");
-            ui.text_edit_singleline(&mut self.new_task_name);
+            let new_task_name_field = ui.add(
+                egui::TextEdit::singleline(&mut self.new_task_name).desired_width(TEXTEDIT_WIDTH),
+            );
             let create_task_btn = ui.add(egui::Button::new("Create"));
             let cancel_btn = ui.add(egui::Button::new("❌ Cancel"));
             ui.label(egui::RichText::new(sanitize_string(
@@ -499,7 +502,10 @@ impl Rclamp {
                 self.message = None;
             }
 
-            if create_task_btn.clicked() {
+            if create_task_btn.clicked()
+                || (new_task_name_field.lost_focus()
+                    && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+            {
                 let project = match &self.current_project {
                     Some(p) => p.clone(),
                     None => {
@@ -542,7 +548,10 @@ impl Rclamp {
         ui.add_space(SPACING);
         ui.horizontal(|ui| {
             ui.label("Folder name: ");
-            ui.text_edit_singleline(&mut self.new_folder_name);
+            let new_folder_name_field = ui.add(
+                egui::TextEdit::singleline(&mut self.new_folder_name).desired_width(TEXTEDIT_WIDTH),
+            );
+
             let create_folder_btn = ui.add(egui::Button::new("Create"));
             let cancel_btn = ui.add(egui::Button::new("❌ Cancel"));
             ui.label(egui::RichText::new(sanitize_string(
@@ -556,7 +565,10 @@ impl Rclamp {
                 self.message = None;
             }
 
-            if create_folder_btn.clicked() {
+            if create_folder_btn.clicked()
+                || (new_folder_name_field.lost_focus()
+                    && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+            {
                 let folder_name = sanitize_string(self.new_folder_name.clone());
 
                 if folder_name.is_empty() {
@@ -593,7 +605,10 @@ impl Rclamp {
     ) {
         ui.add_space(SPACING);
         ui.horizontal(|ui| {
-            let project_name_field = ui.text_edit_singleline(&mut self.new_project_name);
+            let project_name_field = ui.add(
+                egui::TextEdit::singleline(&mut self.new_project_name)
+                    .desired_width(TEXTEDIT_WIDTH),
+            );
             let create_project_btn = ui.add(egui::Button::new("Create"));
 
             ui.label(egui::RichText::new(sanitize_string(
@@ -648,7 +663,10 @@ impl Rclamp {
     fn create_file_dialog(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label("New workfile name: ");
-            ui.text_edit_singleline(&mut self.new_file_name);
+
+            let new_file_name_field = ui.add(
+                egui::TextEdit::singleline(&mut self.new_file_name).desired_width(TEXTEDIT_WIDTH),
+            );
             ui.label("File type: ");
             egui::ComboBox::from_id_source("filetype_select")
                 .selected_text(format!("{}", self.new_file_type.name))
@@ -661,7 +679,10 @@ impl Rclamp {
             ui.label(egui::RichText::new(sanitize_string(
                 self.new_file_name.clone(),
             )));
-            if create_file_btn.clicked() {
+
+            if (new_file_name_field.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
+                || create_file_btn.clicked()
+            {
                 if self.current_project.is_none() {
                     return;
                 }
@@ -670,12 +691,6 @@ impl Rclamp {
                 }
 
                 let file_name = sanitize_string(self.new_file_name.clone());
-
-                /*
-                if file_name.is_empty() {
-                    return;
-                }
-                */
 
                 match File::create_file(
                     file_name,
@@ -983,7 +998,10 @@ impl eframe::App for Rclamp {
             ui.add_space(SPACING);
             ui.with_layout(egui::Layout::left_to_right(egui::Align::LEFT), |ui| {
                 ui.label(format!("Filter"));
-                let filter_edit = ui.text_edit_singleline(&mut self.project_filter);
+                let filter_edit = ui.add(
+                    egui::TextEdit::singleline(&mut self.project_filter)
+                        .desired_width(TEXTEDIT_WIDTH),
+                );
                 if filter_edit.changed() {
                     self.filter_projects(self.project_filter.clone());
                 }
@@ -1040,7 +1058,7 @@ impl eframe::App for Rclamp {
                 None => String::new(),
             };
 
-            ui.label(format!("Current task: {}", task_name));
+            ui.strong(format!("Current task: {}", task_name));
             ui.add(egui::Separator::default());
             self.create_file_dialog(ui);
             ui.add(egui::Separator::default());
