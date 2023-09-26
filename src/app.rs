@@ -49,6 +49,7 @@ struct RclampConfig {
     extra_dir_names: Vec<String>,
     work_sub_dirs: Vec<String>,
     ignore_extensions: Vec<String>,
+    clients_path: String,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -62,12 +63,14 @@ pub struct Rclamp {
     files: Option<Vec<File>>,
     dcc: Vec<Dcc>,
     config: RclampAppConfig,
+    clients: Vec<Client>,
 
     message: Option<Message>,
     show_create_project: bool,
     show_create_task: bool,
     show_create_folder: bool,
     new_project_name: String,
+    new_project_number: String,
     new_project_client: Client,
     new_task_name: String,
     new_folder_name: String,
@@ -123,6 +126,7 @@ impl Default for Rclamp {
                 template_project,
                 ignore_extensions: Vec::new(),
             },
+            clients: Vec::new(),
 
             message,
             show_create_project: false,
@@ -133,6 +137,7 @@ impl Default for Rclamp {
                 name: String::new(),
                 short_name: String::new(),
             },
+            new_project_number: String::new(),
             new_task_name: String::new(),
             new_folder_name: String::new(),
             new_task_parent: empty_task.clone(),
@@ -313,6 +318,20 @@ impl Rclamp {
 
         rclamp.config.ignore_extensions = config.ignore_extensions;
 
+        rclamp.clients = match Client::get_clients(PathBuf::from(&config.clients_path)) {
+            Ok(c) => {
+                info!("Read client list successfully.");
+                c
+            }
+            Err(e) => {
+                rclamp.message = Some(Message {
+                    text: e.clone(),
+                    message_type: MessageType::Warning,
+                });
+                error!("Failed to read client list: {}", e);
+                Vec::new()
+            }
+        };
         Ok(rclamp)
     }
 
@@ -321,7 +340,7 @@ impl Rclamp {
             Ok(r) => r,
             Err(e) => return Err(e),
         };
-
+        self.clients = rclamp.clients;
         self.config = rclamp.config;
 
         Ok(())
@@ -342,6 +361,9 @@ impl Rclamp {
         self.refresh_projects();
         self.refresh_tasks(ui);
         self.refresh_files();
+
+        println!("{:?}", self.clients);
+        println!("{:?}", self.dcc);
     }
 
     /// Refreshes the list of DCC:s
@@ -611,22 +633,41 @@ impl Rclamp {
     ) {
         ui.add_space(SPACING);
         ui.horizontal(|ui| {
+            ui.label("Project number: ");
+            ui.add(egui::TextEdit::singleline(&mut self.new_project_number).desired_width(75.));
+
+            ui.label("Client: ");
             egui::ComboBox::from_id_source("client_select")
                 .selected_text(format!("{}", self.new_project_client.name))
                 .show_ui(ui, |ui| {
-                    for d in &self.dcc {
-                        ui.selectable_value(&mut self.new_file_type, d.clone(), d.name.clone());
+                    for c in &self.clients {
+                        ui.selectable_value(
+                            &mut self.new_project_client,
+                            c.clone(),
+                            c.name.clone(),
+                        );
                     }
                 });
 
+            ui.label("Project name: ");
             let project_name_field = ui.add(
                 egui::TextEdit::singleline(&mut self.new_project_name)
                     .desired_width(TEXTEDIT_WIDTH),
             );
             let create_project_btn = ui.add(egui::Button::new("Create"));
 
+            let mut new_project_full_name = String::new();
+            if self.new_project_name.len() > 0 || self.new_project_number.len() > 0 {
+                new_project_full_name = format!(
+                    "{}_{}_{}",
+                    self.new_project_number,
+                    self.new_project_client.short_name,
+                    self.new_project_name
+                );
+            }
+
             ui.label(egui::RichText::new(sanitize_string(
-                self.new_project_name.clone(),
+                new_project_full_name.clone(),
             )));
 
             ui.add_space(SPACING);
@@ -642,7 +683,7 @@ impl Rclamp {
             {
                 if self.new_project_name.len() > 0 {
                     match Project::new(
-                        sanitize_string(self.new_project_name.clone()),
+                        sanitize_string(new_project_full_name.clone()),
                         projects_dir.clone(),
                         self.config.template_project.pipeline_dir_name.clone(),
                         self.config.template_project.work_dir_name.clone(),
