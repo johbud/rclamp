@@ -1,11 +1,13 @@
 #![warn(clippy::all, rust_2018_idioms)]
 
 mod app;
+mod clients;
 mod helpers;
 mod projects;
 mod tasks;
 mod workfiles;
 pub use app::Rclamp;
+pub use clients::Client;
 pub use projects::Project;
 pub use tasks::TaskTreeNode;
 pub use workfiles::File;

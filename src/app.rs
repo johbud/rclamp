@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use crate::helpers::sanitize_string;
 use crate::workfiles::Dcc;
+use crate::Client;
 use crate::File;
 use crate::Project;
 use crate::TaskTreeNode;
@@ -67,6 +68,7 @@ pub struct Rclamp {
     show_create_task: bool,
     show_create_folder: bool,
     new_project_name: String,
+    new_project_client: Client,
     new_task_name: String,
     new_folder_name: String,
     new_task_parent: TaskTreeNode,
@@ -127,6 +129,10 @@ impl Default for Rclamp {
             show_create_task: false,
             show_create_folder: false,
             new_project_name: String::new(),
+            new_project_client: Client {
+                name: String::new(),
+                short_name: String::new(),
+            },
             new_task_name: String::new(),
             new_folder_name: String::new(),
             new_task_parent: empty_task.clone(),
@@ -605,6 +611,14 @@ impl Rclamp {
     ) {
         ui.add_space(SPACING);
         ui.horizontal(|ui| {
+            egui::ComboBox::from_id_source("client_select")
+                .selected_text(format!("{}", self.new_project_client.name))
+                .show_ui(ui, |ui| {
+                    for d in &self.dcc {
+                        ui.selectable_value(&mut self.new_file_type, d.clone(), d.name.clone());
+                    }
+                });
+
             let project_name_field = ui.add(
                 egui::TextEdit::singleline(&mut self.new_project_name)
                     .desired_width(TEXTEDIT_WIDTH),
