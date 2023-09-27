@@ -49,7 +49,8 @@ struct RclampConfig {
     extra_dir_names: Vec<String>,
     work_sub_dirs: Vec<String>,
     ignore_extensions: Vec<String>,
-    clients_path: String,
+    clients_path_win: String,
+    clients_path_mac: String,
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -318,7 +319,13 @@ impl Rclamp {
 
         rclamp.config.ignore_extensions = config.ignore_extensions;
 
-        rclamp.clients = match Client::get_clients(PathBuf::from(&config.clients_path)) {
+        let clients_path = if cfg!(windows) {
+            PathBuf::from(&config.clients_path_win)
+        } else {
+            PathBuf::from(&config.clients_path_mac)
+        };
+
+        rclamp.clients = match Client::get_clients(clients_path) {
             Ok(c) => {
                 info!("Read client list successfully.");
                 c

@@ -17,3 +17,6 @@ work_sub_dirs:
 
 ignore_extensions:
   - test
+
+clients_path_win:
+clients_path_mac:
