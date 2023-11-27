@@ -15,28 +15,29 @@ pub const SPACING: f32 = 5.;
 pub const TEXTEDIT_WIDTH: f32 = 125.;
 const CONFIG_ENV_VAR: &str = "RCLAMP_CONFIG";
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
 struct Message {
     text: String,
     message_type: MessageType,
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
 enum MessageType {
     Info,
     Warning,
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
 struct RclampAppConfig {
     dark_mode: bool,
     projects_dir: Option<PathBuf>,
     templates_dir: PathBuf,
     template_project: Project,
     ignore_extensions: Vec<String>,
+    clients_path: PathBuf,
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
 struct RclampConfig {
     projects_dir_win: String,
     templates_dir_win: String,
@@ -53,7 +54,7 @@ struct RclampConfig {
     clients_path_mac: String,
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(serde::Deserialize, serde::Serialize, Debug)]
 #[serde(default)]
 pub struct Rclamp {
     current_project: Option<Project>,
@@ -70,6 +71,7 @@ pub struct Rclamp {
     show_create_project: bool,
     show_create_task: bool,
     show_create_folder: bool,
+    show_clients_panel: bool,
     new_project_name: String,
     new_project_number: String,
     new_project_client: Client,
@@ -79,6 +81,9 @@ pub struct Rclamp {
     new_folder_parent: TaskTreeNode,
     new_file_name: String,
     new_file_type: Dcc,
+    new_client_fullname: String,
+    new_client_shortname: String,
+    remove_client: Client,
     project_filter: String,
 }
 
@@ -126,6 +131,7 @@ impl Default for Rclamp {
                 templates_dir,
                 template_project,
                 ignore_extensions: Vec::new(),
+                clients_path: PathBuf::new(),
             },
             clients: Vec::new(),
 
@@ -133,6 +139,7 @@ impl Default for Rclamp {
             show_create_project: false,
             show_create_task: false,
             show_create_folder: false,
+            show_clients_panel: false,
             new_project_name: String::new(),
             new_project_client: Client {
                 name: String::new(),
@@ -148,6 +155,12 @@ impl Default for Rclamp {
                 name: String::new(),
                 extension: String::new(),
                 template_path: PathBuf::from("does_not_exist"),
+            },
+            new_client_fullname: String::new(),
+            new_client_shortname: String::new(),
+            remove_client: Client {
+                name: String::new(),
+                short_name: String::new(),
             },
             project_filter: String::new(),
         }
@@ -325,6 +338,8 @@ impl Rclamp {
             PathBuf::from(&config.clients_path_mac)
         };
 
+        rclamp.config.clients_path = clients_path.clone();
+
         rclamp.clients = match Client::get_clients(clients_path) {
             Ok(c) => {
                 info!("Read client list successfully.");
@@ -368,9 +383,6 @@ impl Rclamp {
         self.refresh_projects();
         self.refresh_tasks(ui);
         self.refresh_files();
-
-        println!("{:?}", self.clients);
-        println!("{:?}", self.dcc);
     }
 
     /// Refreshes the list of DCC:s
@@ -676,6 +688,12 @@ impl Rclamp {
             ui.label(egui::RichText::new(sanitize_string(
                 new_project_full_name.clone(),
             )));
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::LEFT), |ui| {
+                if ui.button("Manage clients").clicked() {
+                    self.open_manage_clients();
+                }
+            });
 
             ui.add_space(SPACING);
 
@@ -1015,6 +1033,86 @@ impl Rclamp {
         self.projects_filtered = filtered;
     }
 
+    fn manage_clients_panel(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(SPACING);
+        ui.add_space(SPACING);
+        ui.strong("Add client");
+        ui.add_space(SPACING);
+        ui.horizontal(|ui| {
+            ui.label("Client full name: ");
+            ui.add(egui::TextEdit::singleline(&mut self.new_client_fullname).desired_width(100.));
+            ui.label("Client short name: ");
+            ui.add(egui::TextEdit::singleline(&mut self.new_client_shortname).desired_width(75.));
+            let add_client_btn = ui.add(egui::Button::new("Add client"));
+
+            if add_client_btn.clicked() {
+                info!("Adding client to: {}", self.config.clients_path.display());
+                match Client::add_client(
+                    &self.new_client_fullname,
+                    &self.new_client_shortname,
+                    &self.config.clients_path,
+                ) {
+                    Ok(_o) => {
+                        self.message = Some(Message {
+                            text: String::from("Successfully added client."),
+                            message_type: MessageType::Info,
+                        })
+                    }
+                    Err(e) => {
+                        self.message = Some(Message {
+                            text: String::from(format!("Failed to add client: {}", e)),
+                            message_type: MessageType::Warning,
+                        })
+                    }
+                };
+            }
+        });
+        ui.add_space(SPACING);
+        ui.strong("Remove client");
+        ui.add_space(SPACING);
+        ui.horizontal(|ui| {
+            egui::ComboBox::from_id_source("remove_client_select")
+                .selected_text(format!("{}", self.remove_client.name))
+                .show_ui(ui, |ui| {
+                    for c in &self.clients {
+                        ui.selectable_value(&mut self.remove_client, c.clone(), c.name.clone());
+                    }
+                });
+            let remove_client_btn = ui.add(egui::Button::new("Remove client"));
+
+            if remove_client_btn.clicked() {
+                info!(
+                    "Removing client from: {}",
+                    self.config.clients_path.display()
+                );
+                match Client::remove_client(&self.remove_client, &self.config.clients_path) {
+                    Ok(_o) => {
+                        self.message = Some(Message {
+                            text: String::from("Successfully removed client."),
+                            message_type: MessageType::Info,
+                        })
+                    }
+                    Err(e) => {
+                        self.message = Some(Message {
+                            text: String::from(format!("Failed to remove client: {}", e)),
+                            message_type: MessageType::Warning,
+                        })
+                    }
+                }
+            }
+        });
+
+        ui.add_space(SPACING);
+        ui.add_space(SPACING);
+
+        if ui.button("Close").clicked() {
+            self.show_clients_panel = false;
+        }
+
+        ui.add_space(SPACING);
+        ui.add_space(SPACING);
+    }
+
     fn open_create_folder(&mut self) {
         self.show_create_folder = true;
         self.show_create_project = false;
@@ -1029,6 +1127,9 @@ impl Rclamp {
         self.show_create_project = !self.show_create_project;
         self.show_create_folder = false;
         self.show_create_task = false;
+    }
+    fn open_manage_clients(&mut self) {
+        self.show_clients_panel = !self.show_clients_panel;
     }
 }
 
@@ -1052,6 +1153,12 @@ impl eframe::App for Rclamp {
         if self.show_create_project {
             egui::TopBottomPanel::top("create_project_panel").show(ctx, |ui| {
                 self.create_project_dialog(ui, ctx, frame);
+            });
+        }
+
+        if self.show_clients_panel {
+            egui::TopBottomPanel::bottom("manage_clients_panel").show(ctx, |ui| {
+                self.manage_clients_panel(ui);
             });
         }
 
