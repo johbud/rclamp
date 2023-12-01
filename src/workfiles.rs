@@ -65,6 +65,7 @@ impl File {
         Ok(())
     }
 
+    /// Reveal the file in Explorer or Finder.
     pub fn reveal(&self) {
         let path: PathBuf = self.path.clone();
         let path = path.parent().unwrap_or(Path::new("").as_ref());
@@ -78,6 +79,7 @@ impl File {
         }
     }
 
+    /// Copy the file with incremented version number.
     pub fn version_up(&self) -> Result<(), io::Error> {
         let mut new_version = self.clone();
         new_version.increase_version_number();
@@ -118,6 +120,7 @@ impl File {
         }
     }
 
+    /// Increment version
     fn increase_version_number(&mut self) {
         self.version += 1;
     }
@@ -148,11 +151,17 @@ impl File {
     }
 
     fn make_filename(name: &String, task: &TaskTreeNode, project: &Project, dcc: &Dcc) -> String {
-        let filename = String::from(format!(
-            "{}_{}_{}_v001{}",
-            project.name_sanitized, task.name, name, dcc.extension
-        ));
-        filename
+        if name.len() > 0 {
+            return String::from(format!(
+                "{}_{}_{}_v001{}",
+                project.name_sanitized, task.name, name, dcc.extension
+            ));
+        } else {
+            return String::from(format!(
+                "{}_{}_v001{}",
+                project.name_sanitized, task.name, dcc.extension
+            ));
+        }
     }
 
     fn make_path(task: TaskTreeNode, name: String) -> PathBuf {
