@@ -38,10 +38,10 @@ impl File {
         );
         let mut version_string = name.clone();
 
+        let mut version_offset = 0;
+
         if name.len() > 5 {
-            let version_offset = name.len() - 5;
-        } else {
-            let version_offset = 0;
+            version_offset = name.len() - 5;
         }
 
         let name = version_string.drain(..version_offset).collect();
