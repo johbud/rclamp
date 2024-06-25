@@ -443,6 +443,7 @@ impl Rclamp {
             project.get_work_path(&projects_dir),
             &project.work_sub_dirs[0],
             &project.work_sub_dirs[1],
+            0,
         ) {
             Ok(t) => t,
             Err(e) => {
@@ -517,6 +518,7 @@ impl Rclamp {
             project.get_work_path(&project_dir),
             &project.work_sub_dirs[0],
             &project.work_sub_dirs[1],
+            0,
         ) {
             Ok(t) => t,
             Err(e) => {
@@ -916,11 +918,30 @@ impl Rclamp {
                     self.set_current_task(task.clone())
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::RIGHT), |ui| {
+                    let assets_btn = ui.add(egui::Button::new("Assets"));
                     let output_btn = ui.add(egui::Button::new("Output"));
+                    let work_btn = ui.add(egui::Button::new("Work"));
                     ui.add_space(SPACING);
 
+                    if work_btn.clicked() {
+                        task.open_directory(match &self.current_project {
+                            Some(p) => p.work_sub_dirs[0].clone(),
+                            None => String::new(),
+                        });
+                    }
+
                     if output_btn.clicked() {
-                        task.open_output();
+                        task.open_directory(match &self.current_project {
+                            Some(p) => p.work_sub_dirs[1].clone(),
+                            None => String::new(),
+                        });
+                    }
+
+                    if assets_btn.clicked() {
+                        task.open_directory(match &self.current_project {
+                            Some(p) => p.work_sub_dirs[2].clone(),
+                            None => String::new(),
+                        });
                     }
                 });
             });

@@ -12,6 +12,7 @@ use std::io;
 use std::path::PathBuf;
 
 const TASK_FILE_NAME: &str = "task.yaml";
+const MAX_FOLDER_RECURSION_DEPTH: i8 = 4;
 
 #[derive(Clone, serde::Deserialize, serde::Serialize, Debug)]
 struct Task {
@@ -41,6 +42,7 @@ impl TaskTreeNode {
         path: PathBuf,
         work_dir_name: &str,
         output_dir_name: &str,
+        depth: i8,
     ) -> Result<TaskTreeNode, io::Error> {
         let name = String::from(
             path.file_name()
@@ -77,12 +79,19 @@ impl TaskTreeNode {
                 continue;
             }
 
-            let child = match TaskTreeNode::from_path(item.path(), work_dir_name, output_dir_name) {
-                Ok(c) => c,
-                Err(e) => return Err(e),
-            };
-
-            node.children.push(child);
+            info!("Depth: {}", &depth);
+            if depth < MAX_FOLDER_RECURSION_DEPTH {
+                let child = match TaskTreeNode::from_path(
+                    item.path(),
+                    work_dir_name,
+                    output_dir_name,
+                    depth + 1,
+                ) {
+                    Ok(c) => c,
+                    Err(e) => return Err(e),
+                };
+                node.children.push(child);
+            }
         }
 
         Ok(node)
@@ -102,11 +111,11 @@ impl TaskTreeNode {
         }
     }
 
-    /// Opens the tasks output directory in Explorer or Finder.
-    pub fn open_output(&self) {
-        let mut output_path: PathBuf = self.path.clone();
-        output_path.push(PathBuf::from("02_output"));
-        let path = OsString::from(output_path);
+    /// Opens the specified directory in Explorer or Finder.
+    pub fn open_directory(&self, dir_name: String) {
+        let mut dir_path: PathBuf = self.path.clone();
+        dir_path.push(PathBuf::from(dir_name));
+        let path = OsString::from(dir_path);
 
         let command = if cfg!(windows) { EXPLORER } else { FINDER };
 

@@ -37,7 +37,13 @@ impl File {
                 .unwrap_or(""),
         );
         let mut version_string = name.clone();
-        let version_offset = name.len() - 5;
+
+        if name.len() > 5 {
+            let version_offset = name.len() - 5;
+        } else {
+            let version_offset = 0;
+        }
+
         let name = version_string.drain(..version_offset).collect();
 
         if !(&version_string.chars().nth(0).unwrap_or('0') == &'_'
